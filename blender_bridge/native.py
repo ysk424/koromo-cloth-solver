@@ -17,6 +17,14 @@ class Triangle(ctypes.Structure):
     _fields_ = [("i0", ctypes.c_uint32), ("i1", ctypes.c_uint32), ("i2", ctypes.c_uint32)]
 
 
+class Seam(ctypes.Structure):
+    _fields_ = [
+        ("i0", ctypes.c_uint32),
+        ("i1", ctypes.c_uint32),
+        ("stiffness", ctypes.c_float),
+    ]
+
+
 class SolverDesc(ctypes.Structure):
     _fields_ = [
         ("struct_size", ctypes.c_uint32), ("gravity", Vec3),
@@ -56,6 +64,11 @@ def _vecs(values):
 def _tris(values):
     data = [Triangle(int(v[0]), int(v[1]), int(v[2])) for v in values]
     return (Triangle * len(data))(*data)
+
+
+def _seams(values, stiffness):
+    data = [Seam(int(v[0]), int(v[1]), float(stiffness)) for v in values]
+    return (Seam * len(data))(*data)
 
 
 class ClothSolver:
@@ -110,6 +123,8 @@ class ClothSolver:
         lib.ocsSetStaticMesh.argtypes = mesh_args; lib.ocsSetStaticMesh.restype = ctypes.c_int32
         lib.ocsSetShellMesh.argtypes = mesh_args + [ctypes.POINTER(ShellMaterial)]
         lib.ocsSetShellMesh.restype = ctypes.c_int32
+        lib.ocsSetShellSeams.argtypes = [ctypes.c_void_p, ctypes.POINTER(Seam), ctypes.c_uint32]
+        lib.ocsSetShellSeams.restype = ctypes.c_int32
         lib.ocsUpdateStaticVertices.argtypes = [ctypes.c_void_p, ctypes.POINTER(Vec3), ctypes.c_uint32]
         lib.ocsUpdateStaticVertices.restype = ctypes.c_int32
         lib.ocsBuild.argtypes = [ctypes.c_void_p]; lib.ocsBuild.restype = ctypes.c_int32
@@ -140,6 +155,15 @@ class ClothSolver:
         v, t = _vecs(vertices), _tris(triangles)
         material = self.default_material() if material is None else material
         self._check(self.lib.ocsSetShellMesh(self.handle, v, len(v), t, len(t), ctypes.byref(material)), "set cloth")
+
+    def set_seams(self, seams, stiffness=1000000.0):
+        values = _seams(seams, stiffness)
+        self._check(
+            self.lib.ocsSetShellSeams(
+                self.handle, values if len(values) else None, len(values)
+            ),
+            "set seams",
+        )
 
     def build(self):
         self._check(self.lib.ocsBuild(self.handle), "build")
