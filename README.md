@@ -31,7 +31,7 @@ cmake --build build --target blender-extension
 ```
 
 Output:
-`build/packages/koromo_cloth_solver-0.5.3-windows-x64.zip`.
+`build/packages/koromo_cloth_solver-0.6.0-windows-x64.zip`.
 
 ## Blender data flow
 
