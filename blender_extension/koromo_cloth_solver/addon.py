@@ -1,10 +1,12 @@
 """Blender UI and Shape Key bake pipeline for the Koromo solver DLL."""
 
+import json
 import math
 
 import bpy
 from bpy.props import (
     BoolProperty,
+    EnumProperty,
     FloatProperty,
     FloatVectorProperty,
     IntProperty,
@@ -14,6 +16,7 @@ from bpy.props import (
 from bpy.types import Operator, Panel, PropertyGroup
 
 from .i18n import tr, translations_dict
+from .housei import HouReadError, build_combined_shell, read_hou_plan
 from .native import NativeSolverError, Vec3, get_library
 
 
@@ -22,6 +25,8 @@ _PREPARED_COLLECTION_TAG = "koromo_prepared_collection_version"
 _PREPARED_OBJECT_TAG = "koromo_prepared_object_version"
 _PREPARED_ROLE_TAG = "koromo_role"
 _PREPARED_SOURCE_TAG = "koromo_source"
+_PREPARED_SOURCE_MODE_TAG = "koromo_source_mode"
+_PREPARED_HOU_DIGEST_TAG = "koromo_hou_plan_digest"
 _PREPARED_SEAMS_TAG = "koromo_seam_pairs"
 _PREPARED_SEAM_DISTANCE_TAG = "koromo_seam_distance"
 _PREPARED_SEAM_ENABLED_TAG = "koromo_seam_enabled"
@@ -355,14 +360,32 @@ def _prepared_seam_pairs(shell) -> list[tuple[int, int]]:
 
 
 def _restore_source_shell_visibility(settings) -> None:
-    if not settings.source_shell_hidden_by_prepare:
-        return
-    source = bpy.data.objects.get(settings.prepared_source_shell_name)
-    if source is None:
-        source = settings.shell_object
-    if source is not None:
-        source.hide_set(False)
-    settings.source_shell_hidden_by_prepare = False
+    if settings.source_shell_hidden_by_prepare:
+        source = bpy.data.objects.get(settings.prepared_source_shell_name)
+        if source is None:
+            source = settings.shell_object
+        if source is not None:
+            source.hide_set(False)
+        settings.source_shell_hidden_by_prepare = False
+
+    raw = settings.prepared_source_hou_visibility_json
+    if raw:
+        try:
+            states = json.loads(raw)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            states = []
+        for name, hidden in states:
+            obj = bpy.data.objects.get(str(name))
+            if obj is not None:
+                obj.hide_set(bool(hidden))
+        settings.prepared_source_hou_visibility_json = ""
+
+
+def _hide_hou_source_parts(settings, parts) -> None:
+    states = [[obj.name, bool(obj.hide_get())] for obj in parts]
+    settings.prepared_source_hou_visibility_json = json.dumps(states)
+    for obj in parts:
+        obj.hide_set(True)
 
 
 def _remove_prepared(settings, *, restore_visibility: bool) -> bool:
@@ -384,6 +407,7 @@ def _remove_prepared(settings, *, restore_visibility: bool) -> bool:
     settings.prepared_collection = None
     settings.prepared_source_shell_name = ""
     settings.prepared_source_static_name = ""
+    settings.prepared_source_hou_visibility_json = ""
 
     removed = bool(objects)
     for obj in objects:
@@ -414,11 +438,24 @@ def _prepared_pair(settings):
         or static.get(_PREPARED_ROLE_TAG) != "STATIC"
     ):
         raise RuntimeError("Prepared simulation objects are invalid; run Prepare again")
-    if (
+    source_mode = str(shell.get(_PREPARED_SOURCE_MODE_TAG, "OBJECT"))
+    if source_mode != settings.source_mode or settings.static_object is None:
+        raise RuntimeError("Source objects changed; run Prepare again")
+    if static.get(_PREPARED_SOURCE_TAG) != settings.static_object.name:
+        raise RuntimeError("Source objects changed; run Prepare again")
+    if source_mode == "HOU":
+        try:
+            plan = read_hou_plan(settings.hou_collection)
+        except HouReadError as exc:
+            raise RuntimeError(str(exc)) from exc
+        if (
+            shell.get(_PREPARED_SOURCE_TAG) != plan.collection.name
+            or shell.get(_PREPARED_HOU_DIGEST_TAG) != plan.digest
+        ):
+            raise RuntimeError("HOU sewing plan changed; run Prepare again")
+    elif (
         settings.shell_object is None
-        or settings.static_object is None
         or shell.get(_PREPARED_SOURCE_TAG) != settings.shell_object.name
-        or static.get(_PREPARED_SOURCE_TAG) != settings.static_object.name
     ):
         raise RuntimeError("Source objects changed; run Prepare again")
     if (
@@ -426,14 +463,14 @@ def _prepared_pair(settings):
         != settings.seam_enabled
     ):
         raise RuntimeError("Seam detection setting changed; run Prepare again")
-    if settings.seam_enabled and not math.isclose(
+    if source_mode != "HOU" and settings.seam_enabled and not math.isclose(
         float(shell.get(_PREPARED_SEAM_DISTANCE_TAG, -1.0)),
         settings.seam_search_distance,
         rel_tol=1.0e-6,
         abs_tol=1.0e-9,
     ):
         raise RuntimeError("Seam Distance changed; run Prepare again")
-    if settings.seam_enabled and (
+    if source_mode != "HOU" and settings.seam_enabled and (
         str(shell.get(_PREPARED_SEAM_ATTRIBUTE_TAG, ""))
         != settings.seam_attribute.strip()
     ):
@@ -560,11 +597,25 @@ def _reset_bake_progress(settings) -> None:
 
 
 class KOROMO_Settings(PropertyGroup):
+    source_mode: EnumProperty(
+        name="Garment Source",
+        description="Use one mesh object or a HOU clothes collection",
+        items=(
+            ("OBJECT", "Mesh Object", "Use one SHELL mesh object"),
+            ("HOU", "HOU Collection", "Use a verified HOU sewing plan and all of its parts"),
+        ),
+        default="OBJECT",
+    )
     shell_object: PointerProperty(
         name="Source SHELL",
         description="Source garment evaluated at the first bake frame",
         type=bpy.types.Object,
         poll=_mesh_object,
+    )
+    hou_collection: PointerProperty(
+        name="HOU Collection",
+        description="Clothes collection carrying housei_sewing_plan_json",
+        type=bpy.types.Collection,
     )
     static_object: PointerProperty(
         name="Source BODY",
@@ -610,6 +661,7 @@ class KOROMO_Settings(PropertyGroup):
     )
     prepared_source_shell_name: StringProperty(options={"HIDDEN"})
     prepared_source_static_name: StringProperty(options={"HIDDEN"})
+    prepared_source_hou_visibility_json: StringProperty(options={"HIDDEN"})
     source_shell_hidden_by_prepare: BoolProperty(default=False, options={"HIDDEN"})
     frame_start: IntProperty(name="Start", default=1, min=-1048574, max=1048574)
     frame_end: IntProperty(name="End", default=250, min=-1048574, max=1048574)
@@ -773,14 +825,21 @@ class KOROMO_OT_prepare(Operator):
             return {"CANCELLED"}
 
         settings = context.scene.koromo_settings
+        source_mode = settings.source_mode
         source_shell = settings.shell_object
+        source_hou = settings.hou_collection
         source_static = settings.static_object
-        if source_shell is None or source_static is None:
+        if source_static is None or (
+            source_mode == "OBJECT" and source_shell is None
+        ) or (source_mode == "HOU" and source_hou is None):
             self.report(
-                {"ERROR"}, tr("Assign both source SHELL and source BODY meshes")
+                {"ERROR"},
+                tr(
+                    "Assign a garment source and source BODY mesh"
+                ),
             )
             return {"CANCELLED"}
-        if source_shell == source_static:
+        if source_mode == "OBJECT" and source_shell == source_static:
             self.report(
                 {"ERROR"}, tr("Source SHELL and BODY must be different objects")
             )
@@ -790,6 +849,7 @@ class KOROMO_OT_prepare(Operator):
         collection = None
         prepared_shell = None
         prepared_static = None
+        hou_plan = None
         try:
             context.scene.frame_set(settings.frame_start)
             _remove_prepared(settings, restore_visibility=True)
@@ -804,22 +864,45 @@ class KOROMO_OT_prepare(Operator):
             context.scene.collection.children.link(collection)
             depsgraph = context.evaluated_depsgraph_get()
 
-            prepared_shell = _evaluated_snapshot(
-                source_shell,
-                depsgraph,
-                f"{source_shell.name}_KOROMO_SHELL",
-            )
+            if source_mode == "HOU":
+                hou_plan = read_hou_plan(source_hou)
+                if source_static in hou_plan.parts:
+                    raise RuntimeError("Source BODY cannot be one of the HOU garment parts")
+                prepared_shell = build_combined_shell(
+                    hou_plan, f"{hou_plan.collection.name}_KOROMO_SHELL"
+                )
+                prepared_source_name = hou_plan.collection.name
+            else:
+                prepared_shell = _evaluated_snapshot(
+                    source_shell,
+                    depsgraph,
+                    f"{source_shell.name}_KOROMO_SHELL",
+                )
+                prepared_source_name = source_shell.name
             collection.objects.link(prepared_shell)
             prepared_shell[_PREPARED_OBJECT_TAG] = _PREPARED_VERSION
             prepared_shell[_PREPARED_ROLE_TAG] = "SHELL"
-            prepared_shell[_PREPARED_SOURCE_TAG] = source_shell.name
+            prepared_shell[_PREPARED_SOURCE_TAG] = prepared_source_name
+            prepared_shell[_PREPARED_SOURCE_MODE_TAG] = source_mode
+            if hou_plan is not None:
+                prepared_shell[_PREPARED_HOU_DIGEST_TAG] = hou_plan.digest
             _validate_shell_mesh(prepared_shell.data)
             if settings.seam_enabled:
-                seam_pairs, seam_source = _seam_pairs(
-                    prepared_shell.data,
-                    settings.seam_attribute,
-                    settings.seam_search_distance,
-                )
+                if hou_plan is not None:
+                    seam_pairs = list(hou_plan.seam_pairs)
+                    if not seam_pairs:
+                        raise RuntimeError(
+                            "HOU sewing plan has no pairs; disable Seam Threads only for an unsewn sheet"
+                        )
+                    seam_source = tr(
+                        "HOU plan {name}", name=hou_plan.collection.name
+                    )
+                else:
+                    seam_pairs, seam_source = _seam_pairs(
+                        prepared_shell.data,
+                        settings.seam_attribute,
+                        settings.seam_search_distance,
+                    )
             else:
                 seam_pairs, seam_source = [], tr("disabled")
             flattened_seams = [vertex for pair in seam_pairs for vertex in pair]
@@ -868,7 +951,7 @@ class KOROMO_OT_prepare(Operator):
             settings.prepared_collection = collection
             settings.prepared_shell_object = prepared_shell
             settings.prepared_static_object = prepared_static
-            settings.prepared_source_shell_name = source_shell.name
+            settings.prepared_source_shell_name = prepared_source_name
             settings.prepared_source_static_name = source_static.name
             settings.last_prepare_skipped = skipped
             settings.last_seam_count = len(seam_pairs)
@@ -888,7 +971,9 @@ class KOROMO_OT_prepare(Operator):
             settings.last_strain = "-"
             _reset_bake_progress(settings)
 
-            if not source_shell.hide_get():
+            if hou_plan is not None:
+                _hide_hou_source_parts(settings, hou_plan.parts)
+            elif not source_shell.hide_get():
                 source_shell.hide_set(True)
                 settings.source_shell_hidden_by_prepare = True
             for obj in context.selected_objects:
@@ -1192,9 +1277,13 @@ class KOROMO_PT_solver(Panel):
         layout.label(text=text, icon=icon)
 
         objects = layout.box()
-        objects.label(text="Source Objects")
-        objects.prop(settings, "shell_object")
-        objects.operator("koromo.set_active_shell", icon="OUTLINER_OB_MESH")
+        objects.label(text="Garment Source")
+        objects.prop(settings, "source_mode", expand=True)
+        if settings.source_mode == "HOU":
+            objects.prop(settings, "hou_collection")
+        else:
+            objects.prop(settings, "shell_object")
+            objects.operator("koromo.set_active_shell", icon="OUTLINER_OB_MESH")
         objects.prop(settings, "static_object")
         objects.operator("koromo.set_active_static", icon="MOD_PHYSICS")
         objects.prop(settings, "static_crop_enabled")
@@ -1283,8 +1372,11 @@ class KOROMO_PT_solver(Panel):
         seams.prop(settings, "seam_enabled")
         seam_settings = seams.column()
         seam_settings.enabled = settings.seam_enabled
-        seam_settings.prop(settings, "seam_attribute")
-        seam_settings.prop(settings, "seam_search_distance")
+        if settings.source_mode == "HOU":
+            seam_settings.label(text="Exact pairs from HOU sewing plan")
+        else:
+            seam_settings.prop(settings, "seam_attribute")
+            seam_settings.prop(settings, "seam_search_distance")
         seam_settings.prop(settings, "seam_stiffness")
         seams.label(
             text=tr("Detected pairs: {count}", count=settings.last_seam_count)

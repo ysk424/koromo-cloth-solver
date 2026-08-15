@@ -159,8 +159,7 @@ void test_seam_thread() {
         KcsVec3 result[6];
         require_ok(kcsCopyShellPositions(solver, result, 6), solver,
                    "copy seam positions");
-        const float error =
-            std::abs(distance(result[0], result[3]) - rest_length);
+        const float error = distance(result[0], result[3]);
         kcsDestroy(solver);
         return error;
     };
@@ -170,7 +169,31 @@ void test_seam_thread() {
     require(strong_error < soft_error * 0.25f,
             "higher finite seam stiffness must reduce seam strain");
     require(strong_error < rest_length * 0.05f,
-            "strong finite seam must keep strain below five percent");
+            "strong finite seam must close to below five percent of its initial gap");
+
+    // MD/HOU stores sewn boundaries as distinct vertices at the same position.
+    // A zero initial distance is valid and the stitch keeps them together.
+    KcsVec3 sewn_vertices[6];
+    std::copy(std::begin(shell_vertices), std::end(shell_vertices),
+              std::begin(sewn_vertices));
+    sewn_vertices[3] = sewn_vertices[0];
+    KcsSolver *sewn = kcsCreate(&desc);
+    require(sewn != nullptr, "create already-sewn solver");
+    require_ok(kcsSetStaticMesh(sewn, floor_vertices, 4, floor_triangles, 2),
+               sewn, "set already-sewn STATIC floor");
+    KcsShellMaterial sewn_material;
+    kcsDefaultShellMaterial(&sewn_material);
+    sewn_material.thickness = 0.02f;
+    require_ok(kcsSetShellMesh(sewn, sewn_vertices, 6, shell_triangles, 2,
+                               &sewn_material),
+               sewn, "set already-sewn SHELL");
+    const KcsSeam sewn_seam[] = {{0, 3, 100000.0f}};
+    require_ok(kcsSetShellSeams(sewn, sewn_seam, 1), sewn,
+               "set zero-length initial seam");
+    require_ok(kcsBuild(sewn), sewn, "build zero-length initial seam");
+    require_ok(kcsStep(sewn, 1.0f / 60.0f), sewn,
+               "step zero-length initial seam");
+    kcsDestroy(sewn);
 }
 
 void test_triangle_strain_limit() {

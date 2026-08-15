@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import sys
 from pathlib import Path
@@ -28,7 +29,7 @@ def main():
     stage = Path(options.extension_stage).resolve()
     manifest = (stage / "blender_manifest.toml").read_text(encoding="utf-8")
     assert 'id = "koromo_cloth_solver"' in manifest
-    assert 'version = "0.4.0"' in manifest
+    assert 'version = "0.5.1"' in manifest
     assert 'name = "Koromo"' in manifest
     assert 'license = ["SPDX:GPL-3.0-or-later"]' in manifest
     assert (stage / "LICENSE").read_text(encoding="utf-8").startswith(
@@ -53,6 +54,7 @@ def main():
             preferences.use_translate_interface = True
             assert tr("Koromo") == "衣"
             assert tr("Bake Simulation") == "シミュレーションをベイク"
+            assert tr("HOU Collection") == "HOUコレクション"
             assert tr(
                 "Frame {frame} / {end} ({percent:.1f}%)",
                 frame=12,
@@ -212,14 +214,14 @@ def main():
         assert len(keys.key_blocks) == 24
         assert keys.use_relative is False
         final_points = keys.key_blocks[-1].data
-        maximum_seam_relative_error = 0.0
+        maximum_seam_remaining_ratio = 0.0
         for (a, b), rest_length in zip(seam_pairs, seam_rest_lengths):
             final_length = math.dist(tuple(final_points[a].co), tuple(final_points[b].co))
-            relative_error = abs(final_length / rest_length - 1.0)
-            maximum_seam_relative_error = max(
-                maximum_seam_relative_error, relative_error
+            remaining_ratio = final_length / rest_length
+            maximum_seam_remaining_ratio = max(
+                maximum_seam_remaining_ratio, remaining_ratio
             )
-            assert relative_error < 0.1
+            assert remaining_ratio < 0.1
         final_height = min(
             (prepared_shell.matrix_world @ point.co).z
             for point in keys.key_blocks[-1].data
@@ -251,13 +253,99 @@ def main():
         assert settings.prepared_static_object is None
         assert bpy.data.collections.get(prepared_collection_name) is None
         assert not shell.hide_get()
+
+        # HOU mode: parts remain read-only; their exact plan pairs are expanded
+        # into one solver-owned shell without proximity reconstruction.
+        hou_collection = bpy.data.collections.new("KOROMO_Test_HOU")
+        hou_collection["housei_role"] = "clothes"
+        bpy.context.scene.collection.children.link(hou_collection)
+        hou_parts = []
+        for part_index, vertices in enumerate(
+            (
+                [
+                    (-0.5, -0.5, 0.5),
+                    (0.5, -0.5, 0.5),
+                    (0.5, 0.5, 0.7),
+                    (-0.5, 0.5, 0.5),
+                ],
+                [
+                    (0.502, -0.5, 0.5),
+                    (1.502, -0.5, 0.5),
+                    (1.502, 0.5, 0.5),
+                    (0.502, 0.5, 0.7),
+                ],
+            )
+        ):
+            part = create_mesh_object(
+                f"KOROMO_HOU_Part_{part_index}",
+                vertices,
+                [(0, 1, 2), (0, 2, 3)],
+            )
+            bpy.context.scene.collection.objects.unlink(part)
+            hou_collection.objects.link(part)
+            pattern = part.data.attributes.new(
+                "housei_pattern_position", "FLOAT_VECTOR", "POINT"
+            )
+            pattern.data.foreach_set(
+                "vector",
+                [coordinate for vertex in vertices for coordinate in vertex],
+            )
+            part["housei_cut_scheme"] = 100
+            part["housei_mesh_spacing_m"] = 1.0
+            part["HOU"] = json.dumps(
+                {
+                    "schema": "housei-hou/1.0.0",
+                    "role": "part",
+                    "panel_id": f"P{part_index}",
+                    "panel_index": part_index,
+                }
+            )
+            hou_parts.append(part)
+        hou_plan = {
+            "schema": "housei-sewing-plan/1.0.0",
+            "collection": hou_collection.name,
+            "labels": ["SIDE"],
+            "parts": [
+                {
+                    "object": part.name,
+                    "instance": f"P{index}",
+                    "panel_id": f"P{index}",
+                    "panel_index": index,
+                    "vertices": 4,
+                    "cut_scheme": 100,
+                    "mesh_spacing_m": 1.0,
+                }
+                for index, part in enumerate(hou_parts)
+            ],
+            "pairs": {"SIDE": [[0, 1, 1, 0], [0, 2, 1, 3]]},
+            "pair_count": 2,
+        }
+        hou_collection["housei_sewing_plan_json"] = json.dumps(hou_plan)
+        settings.source_mode = "HOU"
+        settings.hou_collection = hou_collection
+        settings.frame_end = 4
+        settings.static_object = static
+        assert bpy.ops.koromo.prepare() == {"FINISHED"}
+        hou_shell = settings.prepared_shell_object
+        assert hou_shell is not None
+        assert len(hou_shell.data.vertices) == 8
+        assert len(hou_shell.data.polygons) == 4
+        assert settings.last_seam_count == 2
+        assert "HOU plan KOROMO_Test_HOU" == settings.last_seam_source
+        assert all(part.hide_get() for part in hou_parts)
+        assert not hou_shell.get("koromo_hou_plan_digest", "") == ""
+        assert bpy.ops.koromo.bake() == {"FINISHED"}
+        assert hou_shell.data.shape_keys is not None
+        assert len(hou_shell.data.shape_keys.key_blocks) == 4
+        assert bpy.ops.koromo.clear_prepared() == {"FINISHED"}
+        assert all(not part.hide_get() for part in hou_parts)
         print(
             "Blender Extension preparation smoke test passed: "
             f"OpenMP={get_library().openmp_enabled}, skipped_static=1, "
             f"animated_static_delta={animated_static_z - 0.1:.3f}, "
             f"static_crop={settings.last_static_crop_polygons}, "
-            f"seam_max_error={maximum_seam_relative_error:.6f}, "
-            f"final_min_z={final_height:.6f}"
+            f"seam_remaining_ratio={maximum_seam_remaining_ratio:.6f}, "
+            f"final_min_z={final_height:.6f}, hou_pairs=2"
         )
     finally:
         koromo_cloth_solver.unregister()

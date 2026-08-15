@@ -34,9 +34,8 @@ typedef struct KcsTriangle {
     uint32_t i2;
 } KcsTriangle;
 
-/* A finite-stiffness seam between two SHELL vertices. Rest length is captured
- * from the SHELL positions during kcsBuild() and solved with the other
- * Projective Dynamics constraints. */
+/* A finite-stiffness stitch between two SHELL vertices. Its target length is
+ * zero and it is solved with the other Projective Dynamics constraints. */
 typedef struct KcsSeam {
     uint32_t i0;
     uint32_t i1;

@@ -8,8 +8,8 @@ writes results as absolute Shape Keys; source objects are not modified.
    from Disk**.
 2. Open **3D View > Sidebar > Koromo**. With Blender's interface language set
    to Japanese, the tab and panel name are shown as **衣**.
-3. Assign the garment as source `SHELL` and the animated body as source
-   `BODY`.
+3. Choose **Mesh Object** for one garment `SHELL`, or **HOU Collection** for
+   a HOU clothes collection, then assign the animated body as `BODY`.
 4. Keep **Crop BODY** enabled to use the world-Z range 0.40–1.45 m, then run
    **Prepare Simulation Copies**.
 5. Choose the bake frames and run **Bake Simulation**.
@@ -19,7 +19,13 @@ English and Japanese (`ja_JP`). The **Bake Progress** box and Blender status
 area show the current frame and completion percentage while the synchronous
 bake is running.
 
-If the garment mesh has a Boolean EDGE attribute named
+HOU mode reads all parts and exact seam pairs from
+`housei_sewing_plan_json`. It validates the HOU fingerprints, creates one
+solver-owned world-space shell, and leaves every source part unchanged. A
+stitch has a zero-distance target, so already coincident MD seam vertices are
+valid and remain joined during simulation.
+
+In Mesh Object mode, if the garment has a Boolean EDGE attribute named
 `yohsai_zozo_stitch`, every marked loose edge is used as an explicit sewing
 pair. Otherwise, the Extension can pair nearby boundary vertices from
 disconnected panels. Sewing uses finite Projective Dynamics constraints and
@@ -30,8 +36,9 @@ evaluated topology must remain stable throughout the bake. The cropped body
 can have open boundaries because collision is two-sided and does not use
 inside/outside parity.
 
-Current limitations include no pins, self-collision, edge-edge contact, exact
-CCD, yarn rods, or yarn twisting/sliding terms.
+Current limitations include no pins, edge-edge contact, exact CCD, yarn rods,
+or yarn twisting/sliding terms. Self-collision is intentionally not part of
+the current HOU workflow.
 
 ## License
 

@@ -31,7 +31,7 @@ cmake --build build --target blender-extension
 ```
 
 Output:
-`build/packages/koromo_cloth_solver-0.4.0-windows-x64.zip`.
+`build/packages/koromo_cloth_solver-0.5.1-windows-x64.zip`.
 
 ## Blender data flow
 
@@ -61,12 +61,24 @@ but its topology must remain stable.
 
 ## Blender Extension workflow
 
-The Extension creates a world-space garment snapshot and a separate animated
-body copy. The body copy retains deformation modifiers and is cropped to the
+The Extension accepts either one mesh object or a HOU clothes collection. A
+HOU collection must carry `housei_role = clothes` and a verified
+`housei_sewing_plan_json` using `housei-sewing-plan/1.x`. Koromo validates the
+part fingerprints, combines their world-space meshes in plan order, and uses
+the plan's exact seam vertex pairs. It imports no Housei or Ominaeshi Python
+module and never modifies the HOU source parts.
+
+Each seam pair is a finite-stiffness stitch with a zero-distance target. This
+accepts the normal MD/HOU representation where two distinct sewn boundary
+vertices already occupy exactly the same position and keeps them tied after
+the simulation starts.
+
+Koromo creates a world-space garment snapshot and a separate animated body
+copy. The body copy retains deformation modifiers and is cropped to the
 world-Z range 0.40--1.45 m by default. Since contact is two-sided, the cropped
 collider does not need caps or parity-based inside/outside classification.
 
-For Yohsai/ZOZO garment data, a Boolean EDGE attribute named
+In single-object mode, a Boolean EDGE attribute named
 `yohsai_zozo_stitch` is read before the proximity fallback. Every marked edge
 provides one explicit seam vertex pair. Results are written only to absolute
 Shape Keys on the prepared garment copy.
@@ -77,8 +89,8 @@ the panel progress bar and Blender status area show the current frame and
 completion percentage.
 
 Current collision is two-sided cloth-vertex/body-triangle contact. Shell
-self-collision, exact CCD and the paper's yarn-scale twisting/contact terms are
-not yet implemented.
+self-collision is intentionally out of scope for this workflow; exact CCD and
+the paper's yarn-scale twisting/contact terms are also not implemented.
 
 ## License
 

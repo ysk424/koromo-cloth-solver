@@ -23,9 +23,11 @@ Blender Extensionも実装済みです。元オブジェクトとは別にシミ
 Bakeします。Boolean EDGE属性 `yohsai_zozo_stitch` がある場合は、その辺の両端を
 明示的な縫合ペアとしてDLLへ渡します。
 
-Extension 0.4.0ではBlenderのインターフェイス言語設定に追従する英語／日本語UIを
-追加しました。Bake中はサイドバーの進捗バーとBlender下部のステータス領域に、
-現在フレーム、終了フレーム、完了率を表示します。
+Extension 0.5.1では、従来の1メッシュ入力に加えてHOU衣服コレクション入力を
+追加しました。`housei-sewing-plan/1.x`のパーツ指紋を検証し、全パーツを
+ワールド座標で1つのSHELLコピーへまとめ、縫いプランの正確な頂点ペアを使います。
+Housei／女郎花のPythonモジュールはimportせず、元のHOUパーツも変更しません。
+英語／日本語UI、Bake中の進捗バー、現在フレーム表示も継続します。
 
 元のBlenderオブジェクトを直接変更せず、シミュレーション用コピーまたは
 Shape Keyへ結果を書く前提です。DLL境界では全頂点を同じ座標空間にそろえます。
@@ -72,17 +74,17 @@ ctest --test-dir build --output-on-failure
 ```text
 build/koromo_cloth_solver.dll
 build/blender_bridge/native.py
-build/packages/koromo_cloth_solver-0.4.0-windows-x64.zip
+build/packages/koromo_cloth_solver-0.5.1-windows-x64.zip
 ```
 
 本プロジェクトとBlender ExtensionはGNU GPL version 3 or laterです。
 `omp-contact-solver`由来のMITコード、GCC Runtime Library Exception、
 MinGW-w64 runtimeの表示は`THIRD_PARTY_NOTICES.md`に保持します。
 
-2026-08-15時点では、C ABI／コアテスト2/2とBlender 5.2 Extensionの24フレーム
-バックグラウンド試験が成功しています。Extension試験は明示縫合属性、bodyの
-アニメーション、40--145cmクロップ、ワールド／ローカル座標変換、絶対Shape Key
-Bake、所有Bakeの削除まで確認します。
+2026-08-15時点では、C ABI／コアテスト2/2とBlender 5.2 Extensionの試験を
+用意しています。Extension試験は明示縫合属性、HOUの2パーツ／正確な縫いペア、
+bodyアニメーション、40--145cmクロップ、ワールド／ローカル座標変換、絶対
+Shape Key Bake、所有Bakeの削除まで確認します。
 
 ## CLOTHES_001_ZOZO 実データ確認
 
@@ -129,13 +131,12 @@ Blender MCPブリッジのポートは `9876` を使用しました。
 
 ## 次回以降の優先候補
 
-1. `CLOTHES_001_ZOZO`を全250フレームBakeし、縫合・伸び・接触を品質調整する。
+1. 女郎花がMD OBJから作る実HOUコレクションをKOROMOで長時間Bakeする。
 2. 実キャラクターの高密度body用に、非表示の低密度コライダーを自動生成する。
 3. PIN制約を追加し、肩やウエストなどを保持できるようにする。
-4. 服の自己衝突を追加する。
-5. Mesh Sequence Cache出力をShape Keyの代替として追加する。
-6. 論文本文・補足資料から局所proxとmetric selectionを確定し、Nested DRSを
+4. Mesh Sequence Cache出力をShape Keyの代替として追加する。
+5. 論文本文・補足資料から局所proxとmetric selectionを確定し、Nested DRSを
    別バックエンドとして実装する。
 
-最初に進めるなら1です。実データの全区間で数値を確定してから、低密度body生成と
-PIN／自己衝突へ進むのが自然です。
+自己衝突は現在の用途では優先しません。必要な高品質計算はHOUを縫製データとして
+書き出す別工程に分けます。

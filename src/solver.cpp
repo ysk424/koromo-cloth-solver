@@ -676,12 +676,11 @@ bool Solver::build_shell_constraints() {
             error_ = "SHELL contains a duplicate seam";
             return false;
         }
-        const float rest = length(rest_positions_[seam.i0] -
-                                  rest_positions_[seam.i1]);
-        if (!(rest > kEpsilon)) {
-            error_ = "SHELL contains a zero-length seam";
-            return false;
-        }
+        // A seam is a stitch, not an ordinary cloth edge: its target length is
+        // zero even when the two panels arrive separated.  Sewn MD/HOU input
+        // commonly stores distinct boundary vertices at exactly the same
+        // position, which is valid and must remain tied during simulation.
+        constexpr float rest = 0.0f;
         constraints_.push_back(
             {seam.i0, seam.i1, rest, seam.stiffness});
     }
