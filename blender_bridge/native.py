@@ -1,4 +1,4 @@
-"""ctypes bridge for yarn_level_knitware_solver.dll (Blender-safe, no bpy import)."""
+"""ctypes bridge for koromo_cloth_solver.dll (Blender-safe, no bpy import)."""
 from __future__ import annotations
 
 import ctypes
@@ -78,7 +78,7 @@ class ClothSolver:
                  substeps=None, pd_iterations=None, pcg_iterations=None,
                  thread_count=None):
         path = (Path(dll_path) if dll_path else
-                Path(__file__).parent.parent / "yarn_level_knitware_solver.dll")
+                Path(__file__).parent.parent / "koromo_cloth_solver.dll")
         path = path.resolve()
         if not path.is_file():
             raise RuntimeError(f"solver DLL not found: {path}")
@@ -91,10 +91,10 @@ class ClothSolver:
             if dll_dir is not None:
                 dll_dir.close()
         self._bind()
-        if self.lib.ocsGetAbiVersion() != ABI_VERSION:
-            raise RuntimeError("yarn solver ABI mismatch")
+        if self.lib.kcsGetAbiVersion() != ABI_VERSION:
+            raise RuntimeError("Koromo solver ABI mismatch")
         desc = SolverDesc()
-        self.lib.ocsDefaultSolverDesc(ctypes.byref(desc))
+        self.lib.kcsDefaultSolverDesc(ctypes.byref(desc))
         desc.gravity = Vec3(*map(float, gravity))
         if substeps is not None:
             desc.substeps = int(substeps)
@@ -104,90 +104,90 @@ class ClothSolver:
             desc.pcg_iterations = int(pcg_iterations)
         if thread_count is not None:
             desc.thread_count = int(thread_count)
-        self.handle = self.lib.ocsCreate(ctypes.byref(desc))
+        self.handle = self.lib.kcsCreate(ctypes.byref(desc))
         if not self.handle:
-            raise RuntimeError("could not create yarn cloth solver")
+            raise RuntimeError("could not create Koromo cloth solver")
 
     def _bind(self):
         lib = self.lib
-        lib.ocsGetAbiVersion.argtypes = []
-        lib.ocsGetAbiVersion.restype = ctypes.c_uint32
-        lib.ocsDefaultSolverDesc.argtypes = [ctypes.POINTER(SolverDesc)]
-        lib.ocsDefaultSolverDesc.restype = None
-        lib.ocsCreate.argtypes = [ctypes.POINTER(SolverDesc)]; lib.ocsCreate.restype = ctypes.c_void_p
-        lib.ocsDestroy.argtypes = [ctypes.c_void_p]
-        lib.ocsDefaultShellMaterial.argtypes = [ctypes.POINTER(ShellMaterial)]
-        lib.ocsDefaultShellMaterial.restype = None
+        lib.kcsGetAbiVersion.argtypes = []
+        lib.kcsGetAbiVersion.restype = ctypes.c_uint32
+        lib.kcsDefaultSolverDesc.argtypes = [ctypes.POINTER(SolverDesc)]
+        lib.kcsDefaultSolverDesc.restype = None
+        lib.kcsCreate.argtypes = [ctypes.POINTER(SolverDesc)]; lib.kcsCreate.restype = ctypes.c_void_p
+        lib.kcsDestroy.argtypes = [ctypes.c_void_p]
+        lib.kcsDefaultShellMaterial.argtypes = [ctypes.POINTER(ShellMaterial)]
+        lib.kcsDefaultShellMaterial.restype = None
         mesh_args = [ctypes.c_void_p, ctypes.POINTER(Vec3), ctypes.c_uint32,
                      ctypes.POINTER(Triangle), ctypes.c_uint32]
-        lib.ocsSetStaticMesh.argtypes = mesh_args; lib.ocsSetStaticMesh.restype = ctypes.c_int32
-        lib.ocsSetShellMesh.argtypes = mesh_args + [ctypes.POINTER(ShellMaterial)]
-        lib.ocsSetShellMesh.restype = ctypes.c_int32
-        lib.ocsSetShellSeams.argtypes = [ctypes.c_void_p, ctypes.POINTER(Seam), ctypes.c_uint32]
-        lib.ocsSetShellSeams.restype = ctypes.c_int32
-        lib.ocsUpdateStaticVertices.argtypes = [ctypes.c_void_p, ctypes.POINTER(Vec3), ctypes.c_uint32]
-        lib.ocsUpdateStaticVertices.restype = ctypes.c_int32
-        lib.ocsBuild.argtypes = [ctypes.c_void_p]; lib.ocsBuild.restype = ctypes.c_int32
-        lib.ocsStep.argtypes = [ctypes.c_void_p, ctypes.c_float]; lib.ocsStep.restype = ctypes.c_int32
-        lib.ocsGetShellVertexCount.argtypes = [ctypes.c_void_p]; lib.ocsGetShellVertexCount.restype = ctypes.c_uint32
-        lib.ocsCopyShellPositions.argtypes = [ctypes.c_void_p, ctypes.POINTER(Vec3), ctypes.c_uint32]
-        lib.ocsCopyShellPositions.restype = ctypes.c_int32
-        lib.ocsGetLastError.argtypes = [ctypes.c_void_p]; lib.ocsGetLastError.restype = ctypes.c_char_p
-        lib.ocsGetLastStepStats.argtypes = [ctypes.c_void_p, ctypes.POINTER(StepStats)]
-        lib.ocsGetLastStepStats.restype = ctypes.c_int32
+        lib.kcsSetStaticMesh.argtypes = mesh_args; lib.kcsSetStaticMesh.restype = ctypes.c_int32
+        lib.kcsSetShellMesh.argtypes = mesh_args + [ctypes.POINTER(ShellMaterial)]
+        lib.kcsSetShellMesh.restype = ctypes.c_int32
+        lib.kcsSetShellSeams.argtypes = [ctypes.c_void_p, ctypes.POINTER(Seam), ctypes.c_uint32]
+        lib.kcsSetShellSeams.restype = ctypes.c_int32
+        lib.kcsUpdateStaticVertices.argtypes = [ctypes.c_void_p, ctypes.POINTER(Vec3), ctypes.c_uint32]
+        lib.kcsUpdateStaticVertices.restype = ctypes.c_int32
+        lib.kcsBuild.argtypes = [ctypes.c_void_p]; lib.kcsBuild.restype = ctypes.c_int32
+        lib.kcsStep.argtypes = [ctypes.c_void_p, ctypes.c_float]; lib.kcsStep.restype = ctypes.c_int32
+        lib.kcsGetShellVertexCount.argtypes = [ctypes.c_void_p]; lib.kcsGetShellVertexCount.restype = ctypes.c_uint32
+        lib.kcsCopyShellPositions.argtypes = [ctypes.c_void_p, ctypes.POINTER(Vec3), ctypes.c_uint32]
+        lib.kcsCopyShellPositions.restype = ctypes.c_int32
+        lib.kcsGetLastError.argtypes = [ctypes.c_void_p]; lib.kcsGetLastError.restype = ctypes.c_char_p
+        lib.kcsGetLastStepStats.argtypes = [ctypes.c_void_p, ctypes.POINTER(StepStats)]
+        lib.kcsGetLastStepStats.restype = ctypes.c_int32
 
     def _check(self, code, operation):
         if code != OK:
-            raw = self.lib.ocsGetLastError(self.handle)
+            raw = self.lib.kcsGetLastError(self.handle)
             message = raw.decode("utf-8", "replace") if raw else "unknown error"
             raise RuntimeError(f"{operation}: {message} ({code})")
 
     def default_material(self):
         material = ShellMaterial()
-        self.lib.ocsDefaultShellMaterial(ctypes.byref(material))
+        self.lib.kcsDefaultShellMaterial(ctypes.byref(material))
         return material
 
     def set_body(self, vertices, triangles):
         v, t = _vecs(vertices), _tris(triangles)
-        self._check(self.lib.ocsSetStaticMesh(self.handle, v, len(v), t, len(t)), "set body")
+        self._check(self.lib.kcsSetStaticMesh(self.handle, v, len(v), t, len(t)), "set body")
 
     def set_cloth(self, vertices, triangles, material=None):
         v, t = _vecs(vertices), _tris(triangles)
         material = self.default_material() if material is None else material
-        self._check(self.lib.ocsSetShellMesh(self.handle, v, len(v), t, len(t), ctypes.byref(material)), "set cloth")
+        self._check(self.lib.kcsSetShellMesh(self.handle, v, len(v), t, len(t), ctypes.byref(material)), "set cloth")
 
     def set_seams(self, seams, stiffness=1000000.0):
         values = _seams(seams, stiffness)
         self._check(
-            self.lib.ocsSetShellSeams(
+            self.lib.kcsSetShellSeams(
                 self.handle, values if len(values) else None, len(values)
             ),
             "set seams",
         )
 
     def build(self):
-        self._check(self.lib.ocsBuild(self.handle), "build")
+        self._check(self.lib.kcsBuild(self.handle), "build")
 
     def update_body(self, vertices):
         v = _vecs(vertices)
-        self._check(self.lib.ocsUpdateStaticVertices(self.handle, v, len(v)), "update body")
+        self._check(self.lib.kcsUpdateStaticVertices(self.handle, v, len(v)), "update body")
 
     def step(self, dt):
-        self._check(self.lib.ocsStep(self.handle, ctypes.c_float(dt)), "step")
-        count = self.lib.ocsGetShellVertexCount(self.handle)
+        self._check(self.lib.kcsStep(self.handle, ctypes.c_float(dt)), "step")
+        count = self.lib.kcsGetShellVertexCount(self.handle)
         out = (Vec3 * count)()
-        self._check(self.lib.ocsCopyShellPositions(self.handle, out, count), "fetch cloth")
+        self._check(self.lib.kcsCopyShellPositions(self.handle, out, count), "fetch cloth")
         return [(p.x, p.y, p.z) for p in out]
 
     def stats(self):
         value = StepStats()
         value.struct_size = ctypes.sizeof(StepStats)
-        self._check(self.lib.ocsGetLastStepStats(self.handle, ctypes.byref(value)), "get stats")
+        self._check(self.lib.kcsGetLastStepStats(self.handle, ctypes.byref(value)), "get stats")
         return value
 
     def close(self):
         if self.handle:
-            self.lib.ocsDestroy(self.handle)
+            self.lib.kcsDestroy(self.handle)
             self.handle = None
 
     def __enter__(self):

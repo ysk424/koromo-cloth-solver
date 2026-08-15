@@ -1,4 +1,4 @@
-"""Yarn-level Knitwear Solver Blender Extension."""
+"""Koromo Blender Extension."""
 
 from .addon import register, unregister
 

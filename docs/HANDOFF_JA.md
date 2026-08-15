@@ -23,7 +23,7 @@ Blender Extensionも実装済みです。元オブジェクトとは別にシミ
 Bakeします。Boolean EDGE属性 `yohsai_zozo_stitch` がある場合は、その辺の両端を
 明示的な縫合ペアとしてDLLへ渡します。
 
-Extension 0.3.0以降ではBlenderのインターフェイス言語設定に追従する英語／日本語UIを
+Extension 0.4.0ではBlenderのインターフェイス言語設定に追従する英語／日本語UIを
 追加しました。Bake中はサイドバーの進捗バーとBlender下部のステータス領域に、
 現在フレーム、終了フレーム、完了率を表示します。
 
@@ -56,10 +56,10 @@ Shape Keyへ結果を書く前提です。DLL境界では全頂点を同じ座�
 
 ## ビルド
 
-隣接する `../omp-contact-solver` の検証済みネイティブソースをコンパイルします。
-生成DLLにはそのコアが組み込まれるため、実行時に
-`omp_contact_solver.dll` は不要です。ただし、ソースからのビルド時には隣接
-リポジトリが必要です。
+ネイティブコア、公開Cヘッダー、テストは本リポジトリの `src`、`include`、
+`tests` に収容済みです。ビルド時・実行時とも隣接するOMPソルバーリポジトリや
+そのソースへのパスは不要です。OpenMP対応コンパイラは必要ですが、通常はCMakeが
+コンパイラ付属のOpenMPを自動検出します。
 
 ```powershell
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -70,9 +70,9 @@ ctest --test-dir build --output-on-failure
 成果物:
 
 ```text
-build/yarn_level_knitware_solver.dll
+build/koromo_cloth_solver.dll
 build/blender_bridge/native.py
-build/packages/yarn_level_knitware_solver-0.3.1-windows-x64.zip
+build/packages/koromo_cloth_solver-0.4.0-windows-x64.zip
 ```
 
 本プロジェクトとBlender ExtensionはGNU GPL version 3 or laterです。
@@ -106,13 +106,13 @@ MCPで `Lumi-1-midori-2.blend` の次のデータを確認しました。
 Blender MCPブリッジのポートは `9876` を使用しました。
 
 `tools/blender_mcp_visualize.py` をBlender内で実行すると、既存シーンを変更せず、
-専用の `YLKS Solver Demo` シーンと `YLKS_DLL_DEMO` コレクションを作ります。
+専用の `KOROMO Solver Demo` シーンと `KOROMO_DLL_DEMO` コレクションを作ります。
 
 作成物:
 
-- `YLKS_Body_Collider`: 卵型STATICコライダー
-- `YLKS_Cloth_Input_Wire`: 落下前の正方形布。通常は非表示
-- `YLKS_Cloth_Result`: DLLで計算した布
+- `KOROMO_Body_Collider`: 卵型STATICコライダー
+- `KOROMO_Cloth_Input_Wire`: 落下前の正方形布。通常は非表示
+- `KOROMO_Cloth_Result`: DLLで計算した布
 - デモ専用の床、カメラ、ライト
 
 確認済みデモ値:
@@ -125,7 +125,7 @@ Blender MCPブリッジのポートは `9876` を使用しました。
 - 最大主伸び: 約1.102
 
 布が卵型の頂部を覆い、四辺が側面へ垂れるところまで確認しました。レンダーは
-`build/ylks_demo_final.png` に生成されます。`build` はGit管理対象外です。
+`build/koromo_demo_final.png` に生成されます。`build` はGit管理対象外です。
 
 ## 次回以降の優先候補
 

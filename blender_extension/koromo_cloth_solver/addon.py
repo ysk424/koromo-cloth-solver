@@ -1,4 +1,4 @@
-"""Blender UI and Shape Key bake pipeline for the Yarn-level solver DLL."""
+"""Blender UI and Shape Key bake pipeline for the Koromo solver DLL."""
 
 import math
 
@@ -17,24 +17,24 @@ from .i18n import tr, translations_dict
 from .native import NativeSolverError, Vec3, get_library
 
 
-_BAKE_TAG = "ylks_bake_version"
-_PREPARED_COLLECTION_TAG = "ylks_prepared_collection_version"
-_PREPARED_OBJECT_TAG = "ylks_prepared_object_version"
-_PREPARED_ROLE_TAG = "ylks_role"
-_PREPARED_SOURCE_TAG = "ylks_source"
-_PREPARED_SEAMS_TAG = "ylks_seam_pairs"
-_PREPARED_SEAM_DISTANCE_TAG = "ylks_seam_distance"
-_PREPARED_SEAM_ENABLED_TAG = "ylks_seam_enabled"
-_PREPARED_SEAM_ATTRIBUTE_TAG = "ylks_seam_attribute"
-_PREPARED_SEAM_SOURCE_TAG = "ylks_seam_source"
-_PREPARED_CROP_ENABLED_TAG = "ylks_static_crop_enabled"
-_PREPARED_CROP_MIN_TAG = "ylks_static_crop_min_z"
-_PREPARED_CROP_MAX_TAG = "ylks_static_crop_max_z"
-_PREPARED_COLLECTION_NAME = "YLKS Simulation"
+_BAKE_TAG = "koromo_bake_version"
+_PREPARED_COLLECTION_TAG = "koromo_prepared_collection_version"
+_PREPARED_OBJECT_TAG = "koromo_prepared_object_version"
+_PREPARED_ROLE_TAG = "koromo_role"
+_PREPARED_SOURCE_TAG = "koromo_source"
+_PREPARED_SEAMS_TAG = "koromo_seam_pairs"
+_PREPARED_SEAM_DISTANCE_TAG = "koromo_seam_distance"
+_PREPARED_SEAM_ENABLED_TAG = "koromo_seam_enabled"
+_PREPARED_SEAM_ATTRIBUTE_TAG = "koromo_seam_attribute"
+_PREPARED_SEAM_SOURCE_TAG = "koromo_seam_source"
+_PREPARED_CROP_ENABLED_TAG = "koromo_static_crop_enabled"
+_PREPARED_CROP_MIN_TAG = "koromo_static_crop_min_z"
+_PREPARED_CROP_MAX_TAG = "koromo_static_crop_max_z"
+_PREPARED_COLLECTION_NAME = "Koromo Simulation"
 _PREPARED_VERSION = 3
 _STATIC_TWICE_AREA_FILTER = 1.25e-7
-_STATIC_CROP_GROUP = "YLKS_STATIC_CROP"
-_STATIC_CROP_MODIFIER = "YLKS Static Crop"
+_STATIC_CROP_GROUP = "KOROMO_STATIC_CROP"
+_STATIC_CROP_MODIFIER = "Koromo Static Crop"
 _DEFAULT_SEAM_ATTRIBUTE = "yohsai_zozo_stitch"
 _BAKE_RUNNING = False
 
@@ -467,7 +467,7 @@ def _clear_owned_bake(obj) -> bool:
     if not obj.data.shape_keys:
         return False
     if not _owned_bake(obj):
-        raise RuntimeError("SHELL has Shape Keys that are not owned by Yarn-level Knitwear Solver")
+        raise RuntimeError("SHELL has Shape Keys that are not owned by Koromo")
     obj.shape_key_clear()
     return True
 
@@ -559,7 +559,7 @@ def _reset_bake_progress(settings) -> None:
     settings.bake_progress_text = tr("Not started")
 
 
-class YLKS_Settings(PropertyGroup):
+class KOROMO_Settings(PropertyGroup):
     shell_object: PointerProperty(
         name="Source SHELL",
         description="Source garment evaluated at the first bake frame",
@@ -727,8 +727,8 @@ class YLKS_Settings(PropertyGroup):
     bake_progress_text: StringProperty(default="Not started", options={"HIDDEN"})
 
 
-class YLKS_OT_set_active_shell(Operator):
-    bl_idname = "ylks.set_active_shell"
+class KOROMO_OT_set_active_shell(Operator):
+    bl_idname = "koromo.set_active_shell"
     bl_label = "Use Active as SHELL"
     bl_description = "Assign the active mesh as the deformable SHELL"
 
@@ -737,12 +737,12 @@ class YLKS_OT_set_active_shell(Operator):
         return context.active_object is not None and context.active_object.type == "MESH"
 
     def execute(self, context):
-        context.scene.ylks_settings.shell_object = context.active_object
+        context.scene.koromo_settings.shell_object = context.active_object
         return {"FINISHED"}
 
 
-class YLKS_OT_set_active_static(Operator):
-    bl_idname = "ylks.set_active_static"
+class KOROMO_OT_set_active_static(Operator):
+    bl_idname = "koromo.set_active_static"
     bl_label = "Use Active as BODY"
     bl_description = "Assign the active mesh as the animated body collider"
 
@@ -751,12 +751,12 @@ class YLKS_OT_set_active_static(Operator):
         return context.active_object is not None and context.active_object.type == "MESH"
 
     def execute(self, context):
-        context.scene.ylks_settings.static_object = context.active_object
+        context.scene.koromo_settings.static_object = context.active_object
         return {"FINISHED"}
 
 
-class YLKS_OT_prepare(Operator):
-    bl_idname = "ylks.prepare"
+class KOROMO_OT_prepare(Operator):
+    bl_idname = "koromo.prepare"
     bl_label = "Prepare Simulation Copies"
     bl_description = (
         "Create simulation copies and preserve the BODY animation modifier stack"
@@ -772,7 +772,7 @@ class YLKS_OT_prepare(Operator):
             )
             return {"CANCELLED"}
 
-        settings = context.scene.ylks_settings
+        settings = context.scene.koromo_settings
         source_shell = settings.shell_object
         source_static = settings.static_object
         if source_shell is None or source_static is None:
@@ -807,7 +807,7 @@ class YLKS_OT_prepare(Operator):
             prepared_shell = _evaluated_snapshot(
                 source_shell,
                 depsgraph,
-                f"{source_shell.name}_YLKS_SHELL",
+                f"{source_shell.name}_KOROMO_SHELL",
             )
             collection.objects.link(prepared_shell)
             prepared_shell[_PREPARED_OBJECT_TAG] = _PREPARED_VERSION
@@ -831,7 +831,7 @@ class YLKS_OT_prepare(Operator):
             prepared_shell[_PREPARED_SEAM_SOURCE_TAG] = seam_source
 
             prepared_static = _animated_static_copy(
-                source_static, f"{source_static.name}_YLKS_BODY"
+                source_static, f"{source_static.name}_KOROMO_BODY"
             )
             collection.objects.link(prepared_static)
             prepared_static.hide_set(False)
@@ -916,20 +916,20 @@ class YLKS_OT_prepare(Operator):
             context.scene.frame_set(old_frame)
 
 
-class YLKS_OT_clear_prepared(Operator):
-    bl_idname = "ylks.clear_prepared"
+class KOROMO_OT_clear_prepared(Operator):
+    bl_idname = "koromo.clear_prepared"
     bl_label = "Clear Prepared"
-    bl_description = "Remove simulation copies created by Yarn-level Knitwear Solver"
+    bl_description = "Remove simulation copies created by Koromo"
 
     def execute(self, context):
         if _BAKE_RUNNING:
             self.report({"ERROR"}, tr("A solver bake is already running"))
             return {"CANCELLED"}
         removed = _remove_prepared(
-            context.scene.ylks_settings,
+            context.scene.koromo_settings,
             restore_visibility=True,
         )
-        settings = context.scene.ylks_settings
+        settings = context.scene.koromo_settings
         settings.last_prepare_skipped = 0
         settings.last_seam_count = 0
         settings.last_seam_source = "-"
@@ -945,13 +945,13 @@ class YLKS_OT_clear_prepared(Operator):
         return {"FINISHED"}
 
 
-class YLKS_OT_clear_bake(Operator):
-    bl_idname = "ylks.clear_bake"
+class KOROMO_OT_clear_bake(Operator):
+    bl_idname = "koromo.clear_bake"
     bl_label = "Clear Bake"
-    bl_description = "Remove Shape Keys created by Yarn-level Knitwear Solver"
+    bl_description = "Remove Shape Keys created by Koromo"
 
     def execute(self, context):
-        shell = context.scene.ylks_settings.prepared_shell_object
+        shell = context.scene.koromo_settings.prepared_shell_object
         if not _is_prepared_object(shell):
             self.report({"ERROR"}, tr("Run Prepare Simulation Copies first"))
             return {"CANCELLED"}
@@ -961,14 +961,14 @@ class YLKS_OT_clear_bake(Operator):
         except RuntimeError as exc:
             self.report({"ERROR"}, tr(str(exc)))
             return {"CANCELLED"}
-        settings = context.scene.ylks_settings
+        settings = context.scene.koromo_settings
         settings.last_status = tr("Bake cleared")
         _reset_bake_progress(settings)
         return {"FINISHED"}
 
 
-class YLKS_OT_bake(Operator):
-    bl_idname = "ylks.bake"
+class KOROMO_OT_bake(Operator):
+    bl_idname = "koromo.bake"
     bl_label = "Bake Simulation"
     bl_description = "Run the OpenMP solver and bake absolute Shape Keys"
 
@@ -978,7 +978,7 @@ class YLKS_OT_bake(Operator):
             self.report({"ERROR"}, tr("A solver bake is already running"))
             return {"CANCELLED"}
 
-        settings = context.scene.ylks_settings
+        settings = context.scene.koromo_settings
         if context.mode != "OBJECT":
             self.report({"ERROR"}, tr("Switch Blender to Object Mode before baking"))
             return {"CANCELLED"}
@@ -1102,7 +1102,7 @@ class YLKS_OT_bake(Operator):
                         )
                     solver.update_static_vertices(animated_static_vertices)
                     solver.step(frame_dt)
-                    shape = shell.shape_key_add(name=f"YLKS_{frame:06d}", from_mix=False)
+                    shape = shell.shape_key_add(name=f"KOROMO_{frame:06d}", from_mix=False)
                     shape.interpolation = "KEY_LINEAR"
                     shape.data.foreach_set(
                         "co", _world_to_local_flat(world_to_local, solver.positions())
@@ -1166,17 +1166,17 @@ class YLKS_OT_bake(Operator):
             _tag_progress_redraw(context)
 
 
-class YLKS_PT_solver(Panel):
-    bl_label = "Yarn-level Knitwear Solver"
-    bl_idname = "YLKS_PT_solver"
+class KOROMO_PT_solver(Panel):
+    bl_label = "Koromo"
+    bl_idname = "KOROMO_PT_solver"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "YLKS Cloth"
+    bl_category = "Koromo"
 
     def draw(self, context):
         layout = self.layout
         layout.use_property_split = True
-        settings = context.scene.ylks_settings
+        settings = context.scene.koromo_settings
 
         try:
             library = get_library()
@@ -1194,9 +1194,9 @@ class YLKS_PT_solver(Panel):
         objects = layout.box()
         objects.label(text="Source Objects")
         objects.prop(settings, "shell_object")
-        objects.operator("ylks.set_active_shell", icon="OUTLINER_OB_MESH")
+        objects.operator("koromo.set_active_shell", icon="OUTLINER_OB_MESH")
         objects.prop(settings, "static_object")
-        objects.operator("ylks.set_active_static", icon="MOD_PHYSICS")
+        objects.operator("koromo.set_active_static", icon="MOD_PHYSICS")
         objects.prop(settings, "static_crop_enabled")
         crop = objects.column(align=True)
         crop.enabled = settings.static_crop_enabled
@@ -1205,8 +1205,8 @@ class YLKS_PT_solver(Panel):
 
         prepare_row = objects.row(align=True)
         prepare_row.scale_y = 1.25
-        prepare_row.operator("ylks.prepare", icon="DUPLICATE")
-        prepare_row.operator("ylks.clear_prepared", icon="X")
+        prepare_row.operator("koromo.prepare", icon="DUPLICATE")
+        prepare_row.operator("koromo.clear_prepared", icon="X")
 
         prepared = layout.box()
         prepared.label(text="Simulation Copies")
@@ -1305,8 +1305,8 @@ class YLKS_PT_solver(Panel):
         row = layout.row(align=True)
         row.scale_y = 1.4
         row.enabled = not settings.bake_in_progress
-        row.operator("ylks.bake", icon="PHYSICS")
-        row.operator("ylks.clear_bake", icon="TRASH")
+        row.operator("koromo.bake", icon="PHYSICS")
+        row.operator("koromo.clear_bake", icon="TRASH")
 
         status = layout.box()
         status.label(text=tr(settings.last_status), icon="INFO")
@@ -1318,14 +1318,14 @@ class YLKS_PT_solver(Panel):
 
 
 _CLASSES = (
-    YLKS_Settings,
-    YLKS_OT_set_active_shell,
-    YLKS_OT_set_active_static,
-    YLKS_OT_prepare,
-    YLKS_OT_clear_prepared,
-    YLKS_OT_clear_bake,
-    YLKS_OT_bake,
-    YLKS_PT_solver,
+    KOROMO_Settings,
+    KOROMO_OT_set_active_shell,
+    KOROMO_OT_set_active_static,
+    KOROMO_OT_prepare,
+    KOROMO_OT_clear_prepared,
+    KOROMO_OT_clear_bake,
+    KOROMO_OT_bake,
+    KOROMO_PT_solver,
 )
 
 
@@ -1333,12 +1333,12 @@ def register():
     bpy.app.translations.register(__package__, translations_dict)
     for cls in _CLASSES:
         bpy.utils.register_class(cls)
-    bpy.types.Scene.ylks_settings = PointerProperty(type=YLKS_Settings)
+    bpy.types.Scene.koromo_settings = PointerProperty(type=KOROMO_Settings)
 
 
 def unregister():
-    if hasattr(bpy.types.Scene, "ylks_settings"):
-        del bpy.types.Scene.ylks_settings
+    if hasattr(bpy.types.Scene, "koromo_settings"):
+        del bpy.types.Scene.koromo_settings
     for cls in reversed(_CLASSES):
         bpy.utils.unregister_class(cls)
     bpy.app.translations.unregister(__package__)

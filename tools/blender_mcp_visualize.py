@@ -1,6 +1,6 @@
 """Non-destructive Blender MCP visualization for the continuum cloth DLL.
 
-Executed inside Blender. It creates/replaces only the YLKS_DLL_DEMO collection.
+Executed inside Blender. It creates/replaces only the KOROMO_DLL_DEMO collection.
 """
 from __future__ import annotations
 
@@ -11,14 +11,14 @@ from pathlib import Path
 from mathutils import Vector
 
 
-ROOT = Path(r"C:\Users\azoo\git\Yarn-level-knitware-solver")
-DLL = ROOT / "build" / "yarn_level_knitware_solver.dll"
+ROOT = Path(r"C:\Users\azoo\git\koromo-cloth-solver")
+DLL = ROOT / "build" / "koromo_cloth_solver.dll"
 BRIDGE = ROOT / "build" / "blender_bridge" / "native.py"
-COLLECTION_NAME = "YLKS_DLL_DEMO"
+COLLECTION_NAME = "KOROMO_DLL_DEMO"
 
 
 def load_bridge():
-    spec = importlib.util.spec_from_file_location("ylks_blender_native", BRIDGE)
+    spec = importlib.util.spec_from_file_location("koromo_blender_native", BRIDGE)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -97,13 +97,13 @@ def make_collider(collection):
     verts, tris = [], []
     append_ellipsoid(verts, tris, (0.0, 0.0, 0.72), (0.64, 0.50, 0.92),
                      segments=40, rings=24)
-    obj = mesh_object(collection, "YLKS_Body_Collider", verts, tris,
-                      material("YLKS_Body_Blue", (0.035, 0.18, 0.46, 1.0), 0.15, 0.28))
+    obj = mesh_object(collection, "KOROMO_Body_Collider", verts, tris,
+                      material("KOROMO_Body_Blue", (0.035, 0.18, 0.46, 1.0), 0.15, 0.28))
     for poly in obj.data.polygons:
         poly.use_smooth = True
-    obj["ylks_role"] = "STATIC_BODY_COLLIDER"
-    obj["ylks_topology_stable"] = True
-    obj["ylks_source_space"] = "WORLD"
+    obj["koromo_role"] = "STATIC_BODY_COLLIDER"
+    obj["koromo_topology_stable"] = True
+    obj["koromo_source_space"] = "WORLD"
     return obj, verts, tris
 
 
@@ -127,15 +127,15 @@ def make_square_cloth(n=33, size=1.62, z=1.82):
 
 def setup_presentation(scene, collection):
     ground = mesh_object(
-        collection, "YLKS_Ground",
+        collection, "KOROMO_Ground",
         [(-4, -4, -0.205), (4, -4, -0.205), (4, 4, -0.205), (-4, 4, -0.205)],
         [(0, 1, 2), (0, 2, 3)],
-        material("YLKS_Ground_Mat", (0.018, 0.025, 0.045, 1.0), 0.0, 0.78))
-    ground["ylks_role"] = "PRESENTATION_ONLY"
+        material("KOROMO_Ground_Mat", (0.018, 0.025, 0.045, 1.0), 0.0, 0.78))
+    ground["koromo_role"] = "PRESENTATION_ONLY"
 
     target = Vector((0.0, 0.0, 0.82))
-    camera_data = bpy.data.cameras.new("YLKS_Demo_Camera_Data")
-    camera = bpy.data.objects.new("YLKS_Demo_Camera", camera_data)
+    camera_data = bpy.data.cameras.new("KOROMO_Demo_Camera_Data")
+    camera = bpy.data.objects.new("KOROMO_Demo_Camera", camera_data)
     collection.objects.link(camera)
     camera.location = (3.0, -3.2, 2.65)
     camera.rotation_euler = (target - camera.location).to_track_quat("-Z", "Y").to_euler()
@@ -143,8 +143,8 @@ def setup_presentation(scene, collection):
     scene.camera = camera
 
     for name, location, energy, size, color in (
-            ("YLKS_Key_Light", (2.2, -2.0, 3.7), 250, 3.0, (1.0, 0.78, 0.64)),
-            ("YLKS_Fill_Light", (-2.5, 1.2, 2.4), 120, 2.5, (0.48, 0.68, 1.0))):
+            ("KOROMO_Key_Light", (2.2, -2.0, 3.7), 250, 3.0, (1.0, 0.78, 0.64)),
+            ("KOROMO_Fill_Light", (-2.5, 1.2, 2.4), 120, 2.5, (0.48, 0.68, 1.0))):
         light_data = bpy.data.lights.new(name + "_Data", "AREA")
         light_data.energy = energy
         light_data.shape = "DISK"
@@ -160,29 +160,29 @@ def setup_presentation(scene, collection):
     scene.render.resolution_y = 768
     scene.render.resolution_percentage = 100
     scene.render.image_settings.file_format = "PNG"
-    scene.render.filepath = str(ROOT / "build" / "ylks_demo_final.png")
+    scene.render.filepath = str(ROOT / "build" / "koromo_demo_final.png")
     scene.render.film_transparent = False
     return scene.render.filepath
 
 
 def main():
     native = load_bridge()
-    scene = bpy.data.scenes.get("YLKS Solver Demo") or bpy.data.scenes.new("YLKS Solver Demo")
+    scene = bpy.data.scenes.get("KOROMO Solver Demo") or bpy.data.scenes.new("KOROMO Solver Demo")
     if bpy.context.window:
         bpy.context.window.scene = scene
-    scene.world = scene.world or bpy.data.worlds.new("YLKS Demo World")
+    scene.world = scene.world or bpy.data.worlds.new("KOROMO Demo World")
     scene.world.color = (0.018, 0.022, 0.032)
     collection = reset_collection(scene)
     body_obj, body_verts, body_tris = make_collider(collection)
     cloth_verts, cloth_tris = make_square_cloth()
 
     input_obj = mesh_object(
-        collection, "YLKS_Cloth_Input_Wire", cloth_verts, cloth_tris,
-        material("YLKS_Input_Gray", (0.18, 0.18, 0.18, 1.0)))
+        collection, "KOROMO_Cloth_Input_Wire", cloth_verts, cloth_tris,
+        material("KOROMO_Input_Gray", (0.18, 0.18, 0.18, 1.0)))
     input_obj.display_type = "WIRE"
     input_obj.hide_render = True
     input_obj.hide_viewport = True
-    input_obj["ylks_role"] = "SHELL_INPUT_REFERENCE"
+    input_obj["koromo_role"] = "SHELL_INPUT_REFERENCE"
 
     with native.ClothSolver(DLL, substeps=6, pd_iterations=6,
                             pcg_iterations=60) as solver:
@@ -209,8 +209,8 @@ def main():
             total_contacts += int(final_stats.contact_count)
 
     result_obj = mesh_object(
-        collection, "YLKS_Cloth_Result", output, cloth_tris,
-        material("YLKS_Result_Magenta", (0.72, 0.018, 0.09, 1.0), 0.05, 0.30))
+        collection, "KOROMO_Cloth_Result", output, cloth_tris,
+        material("KOROMO_Result_Magenta", (0.72, 0.018, 0.09, 1.0), 0.05, 0.30))
     for poly in result_obj.data.polygons:
         poly.use_smooth = True
     solidify = result_obj.modifiers.new("Display Thickness", "SOLIDIFY")
@@ -218,13 +218,13 @@ def main():
     subdiv = result_obj.modifiers.new("Display Subdivision", "SUBSURF")
     subdiv.levels = 1
     subdiv.render_levels = 1
-    result_obj["ylks_role"] = "SHELL_RESULT"
-    result_obj["ylks_solver_dll"] = str(DLL)
-    result_obj["ylks_algorithm"] = "PD_ADMM_CONTINUUM_BASELINE_NOT_NESTED_DRS"
-    result_obj["ylks_frames"] = 42
-    result_obj["ylks_total_contacts"] = total_contacts
-    result_obj["ylks_final_contacts"] = int(final_stats.contact_count)
-    result_obj["ylks_max_principal_stretch"] = float(final_stats.maximum_principal_stretch)
+    result_obj["koromo_role"] = "SHELL_RESULT"
+    result_obj["koromo_solver_dll"] = str(DLL)
+    result_obj["koromo_algorithm"] = "PD_ADMM_CONTINUUM_BASELINE_NOT_NESTED_DRS"
+    result_obj["koromo_frames"] = 42
+    result_obj["koromo_total_contacts"] = total_contacts
+    result_obj["koromo_final_contacts"] = int(final_stats.contact_count)
+    result_obj["koromo_max_principal_stretch"] = float(final_stats.maximum_principal_stretch)
     render_path = setup_presentation(scene, collection)
     bpy.ops.render.render(write_still=True)
 

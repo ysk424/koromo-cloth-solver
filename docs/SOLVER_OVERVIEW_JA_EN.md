@@ -1,34 +1,32 @@
-# Yarn-level Knitwear Solver：学生向け概要 / Student Overview
+# Koromo：学生向け概要 / Student Overview
 
 ## OpenMPとパス / OpenMP and paths
 
 配布ZIPをBlenderで使うだけなら、OpenMPのインストールやパス設定は不要です。
 Windows版DLLにはOpenMPランタイムを静的リンクしてあるため、Extensionは同梱の
-`yarn_level_knitware_solver.dll`だけを読み込みます。`OMP_NUM_THREADS`などの環境変数も
+`koromo_cloth_solver.dll`だけを読み込みます。`OMP_NUM_THREADS`などの環境変数も
 必須ではありません。UIの「スレッド数」を0にすると、OpenMPが利用できる最大数を
 自動選択します。
 
 ソースからビルドする場合は、OpenMP対応のC++コンパイラが必要です。CMakeが
 `find_package(OpenMP)`で通常は自動検出するので、OpenMPライブラリのパスを手入力する
-必要はありません。また、現在のビルドは`omp-contact-solver`のソースを使用するため、
-既定では本リポジトリと`omp-contact-solver`を同じ親フォルダーに置きます。別の場所に
-置く場合だけ、`-DOCS_ROOT=C:/path/to/omp-contact-solver`を指定します。このパスは
-ビルド時専用であり、完成したDLLやBlenderでの実行時には不要です。
+必要はありません。ネイティブコア、公開Cヘッダー、テストはすべて本リポジトリ内に
+あるため、別のOMPソルバーリポジトリや、そのソースへのパスも不要です。
 
 For normal Blender use, neither an OpenMP installation nor an OpenMP path is
 required. The Windows DLL statically contains its OpenMP runtime. OpenMP is
 required only when compiling the project, and CMake normally detects it from
-the selected compiler. The `OCS_ROOT` path points to the `omp-contact-solver`
-source during compilation; it is not a runtime dependency.
+the selected compiler. The native core, public C header, and tests live in this
+repository, so no path to another solver repository is needed.
 
 ## 日本語解説（約1000字）
 
-Yarn-level Knitwear Solverは、Blender上の服を人体の動きに沿って変形させ、その結果を
-アニメーションとして保存するCPUベースの布シミュレーターです。名前には「糸レベル」
-とありますが、現段階では一本一本の糸を棒として計算するのではなく、服を三角形の
-集合からなる薄い弾性シート、つまり連続体シェルとして扱います。網目を、質点とばねが
-多数つながった模型として想像すると近いですが、実際には三角形の伸び、曲げ、面積や
-方向の変化をProjective DynamicsとADMMという反復法で同時に調整します。
+Koromoは、Blender上の服を人体の動きに沿って変形させ、その結果を
+アニメーションとして保存するCPUベースの布シミュレーターです。現段階では一本一本の
+糸を棒として計算するのではなく、服を三角形の集合からなる薄い弾性シート、つまり
+連続体シェルとして扱います。網目を、質点とばねが多数つながった模型として想像すると
+近いですが、実際には三角形の伸び、曲げ、面積や方向の変化をProjective Dynamicsと
+ADMMという反復法で同時に調整します。
 
 入力は服のSHELLメッシュと、衝突相手となるBODYメッシュです。準備操作では元データを
 直接変更せず、服のスナップショットとボディの複製を作ります。ボディ側のArmatureなどの
@@ -52,9 +50,9 @@ CPUの複数コアへ分配されます。
 
 ## English explanation (about 1000 characters)
 
-Yarn-level Knitwear Solver is a CPU cloth simulator that deforms a garment
-against an animated Blender body and bakes the result. Despite its name, it does
-not yet model each yarn as a rod. The garment is a thin triangular elastic shell.
+Koromo is a CPU cloth simulator that deforms a garment
+against an animated Blender body and bakes the result. It does not yet model
+each yarn as a rod. The garment is a thin triangular elastic shell.
 A spring net is a useful analogy, but Projective Dynamics, ADMM, and PCG solve
 stretch, bending, strain limits, seams, and contact together.
 

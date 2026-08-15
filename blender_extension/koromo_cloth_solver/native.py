@@ -1,4 +1,4 @@
-"""Small ctypes binding for the Yarn-level Knitwear Solver C ABI.
+"""Small ctypes binding for the Koromo C ABI.
 
 This module deliberately has no bpy dependency so the DLL boundary can also be
 smoke-tested with a normal Python interpreter.
@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 
-OCS_ABI_VERSION = 4
-OCS_OK = 0
+KCS_ABI_VERSION = 4
+KCS_OK = 0
 
 
 class NativeSolverError(RuntimeError):
@@ -85,11 +85,11 @@ class StepStats(ctypes.Structure):
 def bundled_library_path() -> Path:
     """Return the platform-specific library path inside the Extension."""
     if sys.platform == "win32":
-        filename = "yarn_level_knitware_solver.dll"
+        filename = "koromo_cloth_solver.dll"
     elif sys.platform == "darwin":
-        filename = "libyarn_level_knitware_solver.dylib"
+        filename = "libkoromo_cloth_solver.dylib"
     else:
-        filename = "libyarn_level_knitware_solver.so"
+        filename = "libkoromo_cloth_solver.so"
     return Path(__file__).resolve().parent / "bin" / filename
 
 
@@ -132,41 +132,41 @@ class SolverLibrary:
                 dll_directory.close()
 
         self._declare_functions()
-        abi = int(self.api.ocsGetAbiVersion())
-        if abi != OCS_ABI_VERSION:
+        abi = int(self.api.kcsGetAbiVersion())
+        if abi != KCS_ABI_VERSION:
             raise NativeSolverError(
-                f"Solver ABI mismatch: Extension expects {OCS_ABI_VERSION}, DLL reports {abi}"
+                f"Solver ABI mismatch: Extension expects {KCS_ABI_VERSION}, DLL reports {abi}"
             )
 
     def _declare_functions(self) -> None:
         api = self.api
-        api.ocsGetAbiVersion.argtypes = []
-        api.ocsGetAbiVersion.restype = ctypes.c_uint32
-        api.ocsIsOpenMpEnabled.argtypes = []
-        api.ocsIsOpenMpEnabled.restype = ctypes.c_int32
-        api.ocsDefaultSolverDesc.argtypes = [ctypes.POINTER(SolverDesc)]
-        api.ocsDefaultSolverDesc.restype = None
-        api.ocsDefaultShellMaterial.argtypes = [ctypes.POINTER(ShellMaterial)]
-        api.ocsDefaultShellMaterial.restype = None
-        api.ocsCreate.argtypes = [ctypes.POINTER(SolverDesc)]
-        api.ocsCreate.restype = ctypes.c_void_p
-        api.ocsDestroy.argtypes = [ctypes.c_void_p]
-        api.ocsDestroy.restype = None
-        api.ocsSetStaticMesh.argtypes = [
+        api.kcsGetAbiVersion.argtypes = []
+        api.kcsGetAbiVersion.restype = ctypes.c_uint32
+        api.kcsIsOpenMpEnabled.argtypes = []
+        api.kcsIsOpenMpEnabled.restype = ctypes.c_int32
+        api.kcsDefaultSolverDesc.argtypes = [ctypes.POINTER(SolverDesc)]
+        api.kcsDefaultSolverDesc.restype = None
+        api.kcsDefaultShellMaterial.argtypes = [ctypes.POINTER(ShellMaterial)]
+        api.kcsDefaultShellMaterial.restype = None
+        api.kcsCreate.argtypes = [ctypes.POINTER(SolverDesc)]
+        api.kcsCreate.restype = ctypes.c_void_p
+        api.kcsDestroy.argtypes = [ctypes.c_void_p]
+        api.kcsDestroy.restype = None
+        api.kcsSetStaticMesh.argtypes = [
             ctypes.c_void_p,
             ctypes.POINTER(Vec3),
             ctypes.c_uint32,
             ctypes.POINTER(Triangle),
             ctypes.c_uint32,
         ]
-        api.ocsSetStaticMesh.restype = ctypes.c_int32
-        api.ocsUpdateStaticVertices.argtypes = [
+        api.kcsSetStaticMesh.restype = ctypes.c_int32
+        api.kcsUpdateStaticVertices.argtypes = [
             ctypes.c_void_p,
             ctypes.POINTER(Vec3),
             ctypes.c_uint32,
         ]
-        api.ocsUpdateStaticVertices.restype = ctypes.c_int32
-        api.ocsSetShellMesh.argtypes = [
+        api.kcsUpdateStaticVertices.restype = ctypes.c_int32
+        api.kcsSetShellMesh.argtypes = [
             ctypes.c_void_p,
             ctypes.POINTER(Vec3),
             ctypes.c_uint32,
@@ -174,42 +174,42 @@ class SolverLibrary:
             ctypes.c_uint32,
             ctypes.POINTER(ShellMaterial),
         ]
-        api.ocsSetShellMesh.restype = ctypes.c_int32
-        api.ocsSetShellSeams.argtypes = [
+        api.kcsSetShellMesh.restype = ctypes.c_int32
+        api.kcsSetShellSeams.argtypes = [
             ctypes.c_void_p,
             ctypes.POINTER(Seam),
             ctypes.c_uint32,
         ]
-        api.ocsSetShellSeams.restype = ctypes.c_int32
-        api.ocsBuild.argtypes = [ctypes.c_void_p]
-        api.ocsBuild.restype = ctypes.c_int32
-        api.ocsStep.argtypes = [ctypes.c_void_p, ctypes.c_float]
-        api.ocsStep.restype = ctypes.c_int32
-        api.ocsGetShellVertexCount.argtypes = [ctypes.c_void_p]
-        api.ocsGetShellVertexCount.restype = ctypes.c_uint32
-        api.ocsCopyShellPositions.argtypes = [
+        api.kcsSetShellSeams.restype = ctypes.c_int32
+        api.kcsBuild.argtypes = [ctypes.c_void_p]
+        api.kcsBuild.restype = ctypes.c_int32
+        api.kcsStep.argtypes = [ctypes.c_void_p, ctypes.c_float]
+        api.kcsStep.restype = ctypes.c_int32
+        api.kcsGetShellVertexCount.argtypes = [ctypes.c_void_p]
+        api.kcsGetShellVertexCount.restype = ctypes.c_uint32
+        api.kcsCopyShellPositions.argtypes = [
             ctypes.c_void_p,
             ctypes.POINTER(Vec3),
             ctypes.c_uint32,
         ]
-        api.ocsCopyShellPositions.restype = ctypes.c_int32
-        api.ocsGetLastStepStats.argtypes = [ctypes.c_void_p, ctypes.POINTER(StepStats)]
-        api.ocsGetLastStepStats.restype = ctypes.c_int32
-        api.ocsGetLastError.argtypes = [ctypes.c_void_p]
-        api.ocsGetLastError.restype = ctypes.c_char_p
+        api.kcsCopyShellPositions.restype = ctypes.c_int32
+        api.kcsGetLastStepStats.argtypes = [ctypes.c_void_p, ctypes.POINTER(StepStats)]
+        api.kcsGetLastStepStats.restype = ctypes.c_int32
+        api.kcsGetLastError.argtypes = [ctypes.c_void_p]
+        api.kcsGetLastError.restype = ctypes.c_char_p
 
     @property
     def openmp_enabled(self) -> bool:
-        return bool(self.api.ocsIsOpenMpEnabled())
+        return bool(self.api.kcsIsOpenMpEnabled())
 
     def default_desc(self) -> SolverDesc:
         value = SolverDesc()
-        self.api.ocsDefaultSolverDesc(ctypes.byref(value))
+        self.api.kcsDefaultSolverDesc(ctypes.byref(value))
         return value
 
     def default_material(self) -> ShellMaterial:
         value = ShellMaterial()
-        self.api.ocsDefaultShellMaterial(ctypes.byref(value))
+        self.api.kcsDefaultShellMaterial(ctypes.byref(value))
         return value
 
     def create(self, desc: SolverDesc) -> "Solver":
@@ -217,17 +217,17 @@ class SolverLibrary:
 
 
 class Solver:
-    """RAII-style wrapper around one opaque OcsSolver handle."""
+    """RAII-style wrapper around one opaque KcsSolver handle."""
 
     def __init__(self, library: SolverLibrary, desc: SolverDesc):
         self.library = library
-        self.handle = library.api.ocsCreate(ctypes.byref(desc))
+        self.handle = library.api.kcsCreate(ctypes.byref(desc))
         if not self.handle:
             raise NativeSolverError("Could not create the native solver")
 
     def close(self) -> None:
         if self.handle:
-            self.library.api.ocsDestroy(self.handle)
+            self.library.api.kcsDestroy(self.handle)
             self.handle = None
 
     def __enter__(self) -> "Solver":
@@ -237,11 +237,11 @@ class Solver:
         self.close()
 
     def _error_text(self) -> str:
-        raw = self.library.api.ocsGetLastError(self.handle)
+        raw = self.library.api.kcsGetLastError(self.handle)
         return raw.decode("utf-8", errors="replace") if raw else "unknown native error"
 
     def _check(self, result: int, operation: str) -> None:
-        if int(result) != OCS_OK:
+        if int(result) != KCS_OK:
             raise NativeSolverError(
                 f"{operation} failed with result {int(result)}: {self._error_text()}"
             )
@@ -249,7 +249,7 @@ class Solver:
     def set_static_mesh(self, vertices, triangles) -> None:
         vertex_array = _as_vec3_array(vertices)
         triangle_array = _as_triangle_array(triangles)
-        result = self.library.api.ocsSetStaticMesh(
+        result = self.library.api.kcsSetStaticMesh(
             self.handle,
             vertex_array if len(vertex_array) else None,
             len(vertex_array),
@@ -260,7 +260,7 @@ class Solver:
 
     def update_static_vertices(self, vertices) -> None:
         vertex_array = _as_vec3_array(vertices)
-        result = self.library.api.ocsUpdateStaticVertices(
+        result = self.library.api.kcsUpdateStaticVertices(
             self.handle,
             vertex_array if len(vertex_array) else None,
             len(vertex_array),
@@ -270,7 +270,7 @@ class Solver:
     def set_shell_mesh(self, vertices, triangles, material: ShellMaterial) -> None:
         vertex_array = _as_vec3_array(vertices)
         triangle_array = _as_triangle_array(triangles)
-        result = self.library.api.ocsSetShellMesh(
+        result = self.library.api.kcsSetShellMesh(
             self.handle,
             vertex_array,
             len(vertex_array),
@@ -282,7 +282,7 @@ class Solver:
 
     def set_shell_seams(self, seams, stiffness: float) -> None:
         seam_array = _as_seam_array(seams, stiffness)
-        result = self.library.api.ocsSetShellSeams(
+        result = self.library.api.kcsSetShellSeams(
             self.handle,
             seam_array if len(seam_array) else None,
             len(seam_array),
@@ -290,19 +290,19 @@ class Solver:
         self._check(result, "Setting SHELL seams")
 
     def build(self) -> None:
-        self._check(self.library.api.ocsBuild(self.handle), "Building solver")
+        self._check(self.library.api.kcsBuild(self.handle), "Building solver")
 
     def step(self, frame_dt: float) -> None:
         self._check(
-            self.library.api.ocsStep(self.handle, ctypes.c_float(frame_dt)),
+            self.library.api.kcsStep(self.handle, ctypes.c_float(frame_dt)),
             "Stepping solver",
         )
 
     def positions(self) -> list[tuple[float, float, float]]:
-        count = int(self.library.api.ocsGetShellVertexCount(self.handle))
+        count = int(self.library.api.kcsGetShellVertexCount(self.handle))
         values = (Vec3 * count)()
         self._check(
-            self.library.api.ocsCopyShellPositions(self.handle, values, count),
+            self.library.api.kcsCopyShellPositions(self.handle, values, count),
             "Copying SHELL positions",
         )
         return [(float(value.x), float(value.y), float(value.z)) for value in values]
@@ -311,7 +311,7 @@ class Solver:
         value = StepStats()
         value.struct_size = ctypes.sizeof(StepStats)
         self._check(
-            self.library.api.ocsGetLastStepStats(self.handle, ctypes.byref(value)),
+            self.library.api.kcsGetLastStepStats(self.handle, ctypes.byref(value)),
             "Reading solver statistics",
         )
         return value

@@ -27,19 +27,23 @@ def main():
 
     stage = Path(options.extension_stage).resolve()
     manifest = (stage / "blender_manifest.toml").read_text(encoding="utf-8")
-    assert 'version = "0.3.1"' in manifest
+    assert 'id = "koromo_cloth_solver"' in manifest
+    assert 'version = "0.4.0"' in manifest
+    assert 'name = "Koromo"' in manifest
     assert 'license = ["SPDX:GPL-3.0-or-later"]' in manifest
     assert (stage / "LICENSE").read_text(encoding="utf-8").startswith(
-        "Yarn-level Knitwear Solver\nCopyright (C) 2026 ysk424"
+        "Koromo\nCopyright (C) 2026 ysk424"
     )
     assert (stage / "THIRD_PARTY_NOTICES.md").is_file()
     sys.path.insert(0, str(stage.parent))
-    import yarn_level_knitware_solver
-    from yarn_level_knitware_solver.i18n import tr
-    from yarn_level_knitware_solver.native import get_library
+    import koromo_cloth_solver
+    from koromo_cloth_solver.i18n import tr
+    from koromo_cloth_solver.native import get_library
 
-    yarn_level_knitware_solver.register()
+    koromo_cloth_solver.register()
     try:
+        assert bpy.types.KOROMO_PT_solver.bl_label == "Koromo"
+        assert bpy.types.KOROMO_PT_solver.bl_category == "Koromo"
         assert get_library().openmp_enabled
         preferences = bpy.context.preferences.view
         old_language = preferences.language
@@ -47,6 +51,7 @@ def main():
         try:
             preferences.language = "ja_JP"
             preferences.use_translate_interface = True
+            assert tr("Koromo") == "衣"
             assert tr("Bake Simulation") == "シミュレーションをベイク"
             assert tr(
                 "Frame {frame} / {end} ({percent:.1f}%)",
@@ -58,7 +63,7 @@ def main():
             preferences.language = old_language
             preferences.use_translate_interface = old_translate_interface
         static = create_mesh_object(
-            "YLKS_Test_STATIC",
+            "KOROMO_Test_STATIC",
             [
                 (-2, -2, 0),
                 (2, -2, 0),
@@ -74,7 +79,7 @@ def main():
             [(0, 1, 2), (0, 2, 3), (4, 5, 6), (7, 8, 9)],
         )
         shell = create_mesh_object(
-            "YLKS_Test_SHELL",
+            "KOROMO_Test_SHELL",
             [
                 (-0.5, -0.5, 0.5),
                 (0.5, -0.5, 0.5),
@@ -127,7 +132,7 @@ def main():
         finally:
             evaluated.to_mesh_clear()
 
-        settings = bpy.context.scene.ylks_settings
+        settings = bpy.context.scene.koromo_settings
         assert settings.substeps == 6
         assert settings.pd_iterations == 10
         assert settings.pcg_iterations == 120
@@ -148,7 +153,7 @@ def main():
         settings.seam_search_distance = 0.01
         settings.seam_stiffness = 1000000.0
 
-        assert bpy.ops.ylks.prepare() == {"FINISHED"}
+        assert bpy.ops.koromo.prepare() == {"FINISHED"}
         prepared_shell = settings.prepared_shell_object
         prepared_static = settings.prepared_static_object
         prepared_collection = settings.prepared_collection
@@ -160,7 +165,7 @@ def main():
         assert prepared_static.hide_viewport is False
         assert prepared_static.hide_get() is False
         assert "Animated Body Deformation" in prepared_static.modifiers
-        assert "YLKS Static Crop" in prepared_static.modifiers
+        assert "Koromo Static Crop" in prepared_static.modifiers
         prepared_collection_name = prepared_collection.name
         assert tuple(prepared_shell.matrix_world) == tuple(
             type(prepared_shell.matrix_world).Identity(4)
@@ -199,11 +204,11 @@ def main():
         ]
 
         bpy.context.scene.frame_set(7)
-        assert bpy.ops.ylks.bake() == {"FINISHED"}
+        assert bpy.ops.koromo.bake() == {"FINISHED"}
         assert bpy.context.scene.frame_current == 7
         keys = prepared_shell.data.shape_keys
         assert keys is not None
-        assert keys.get("ylks_bake_version") == 1
+        assert keys.get("koromo_bake_version") == 1
         assert len(keys.key_blocks) == 24
         assert keys.use_relative is False
         final_points = keys.key_blocks[-1].data
@@ -232,7 +237,7 @@ def main():
         assert abs(animated_static_z - 0.2) < 1.0e-6, animated_static_z
         bpy.context.scene.frame_set(1)
 
-        assert bpy.ops.ylks.clear_bake() == {"FINISHED"}
+        assert bpy.ops.koromo.clear_bake() == {"FINISHED"}
         assert prepared_shell.data.shape_keys is None
         assert shell.data.shape_keys is not None
         assert shell.data.shape_keys.key_blocks[0].name == "User Basis"
@@ -241,7 +246,7 @@ def main():
         assert settings.bake_total_frames == 0
         assert settings.bake_progress_text == "Not started"
 
-        assert bpy.ops.ylks.clear_prepared() == {"FINISHED"}
+        assert bpy.ops.koromo.clear_prepared() == {"FINISHED"}
         assert settings.prepared_shell_object is None
         assert settings.prepared_static_object is None
         assert bpy.data.collections.get(prepared_collection_name) is None
@@ -255,7 +260,7 @@ def main():
             f"final_min_z={final_height:.6f}"
         )
     finally:
-        yarn_level_knitware_solver.unregister()
+        koromo_cloth_solver.unregister()
 
 
 if __name__ == "__main__":

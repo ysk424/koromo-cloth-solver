@@ -1,0 +1,296 @@
+#include "solver.hpp"
+
+#include <algorithm>
+#include <cmath>
+#include <climits>
+#include <cstring>
+#include <exception>
+#include <new>
+
+namespace {
+
+thread_local std::string g_last_error;
+
+void set_global_error(const char *message) {
+    g_last_error = message ? message : "unknown error";
+}
+
+KcsResult fail(KcsSolver *solver, KcsResult result, const char *message) {
+    if (solver) {
+        solver->impl.set_error(message ? message : "unknown error");
+    }
+    set_global_error(message);
+    return result;
+}
+
+bool valid_solver_desc(const KcsSolverDesc &d) {
+    return d.struct_size == sizeof(KcsSolverDesc) && d.substeps > 0 &&
+           d.pd_iterations > 0 && d.pcg_iterations > 0 &&
+           std::isfinite(d.gravity.x) && std::isfinite(d.gravity.y) &&
+           std::isfinite(d.gravity.z) &&
+           std::isfinite(d.pcg_relative_tolerance) &&
+           d.pcg_relative_tolerance > 0.0f &&
+           std::isfinite(d.velocity_damping) &&
+           d.velocity_damping >= 0.0f && d.thread_count <= INT_MAX;
+}
+
+bool valid_material(const KcsShellMaterial &m) {
+    return m.struct_size == sizeof(KcsShellMaterial) &&
+           std::isfinite(m.density) && std::isfinite(m.stretch_stiffness) &&
+           std::isfinite(m.bend_stiffness) && std::isfinite(m.thickness) &&
+           std::isfinite(m.friction) && std::isfinite(m.restitution) &&
+           std::isfinite(m.strain_limit) &&
+           std::isfinite(m.strain_limit_stiffness) &&
+           m.density > 0.0f &&
+           m.stretch_stiffness > 0.0f && m.bend_stiffness >= 0.0f &&
+           m.thickness >= 0.0f && m.friction >= 0.0f && m.friction <= 1.0f &&
+           m.restitution >= 0.0f && m.restitution <= 1.0f &&
+           m.strain_limit >= 0.0f && m.strain_limit <= 10.0f &&
+           m.strain_limit_stiffness >= 0.0f &&
+           (m.strain_limit == 0.0f || m.strain_limit_stiffness > 0.0f);
+}
+
+} // namespace
+
+extern "C" {
+
+uint32_t kcsGetAbiVersion(void) { return KCS_ABI_VERSION; }
+
+int32_t kcsIsOpenMpEnabled(void) {
+#ifdef _OPENMP
+    return 1;
+#else
+    return 0;
+#endif
+}
+
+void kcsDefaultSolverDesc(KcsSolverDesc *desc) {
+    if (!desc) return;
+    std::memset(desc, 0, sizeof(*desc));
+    desc->struct_size = sizeof(*desc);
+    desc->gravity = {0.0f, -9.81f, 0.0f};
+    desc->substeps = 10;
+    desc->pd_iterations = 8;
+    desc->pcg_iterations = 80;
+    desc->pcg_relative_tolerance = 1.0e-5f;
+    desc->collision_iterations = 2;
+    desc->velocity_damping = 0.05f;
+    desc->thread_count = 0;
+}
+
+void kcsDefaultShellMaterial(KcsShellMaterial *material) {
+    if (!material) return;
+    std::memset(material, 0, sizeof(*material));
+    material->struct_size = sizeof(*material);
+    material->density = 1.0f;
+    material->stretch_stiffness = 1000.0f;
+    material->bend_stiffness = 1.0f;
+    material->thickness = 0.01f;
+    material->friction = 0.35f;
+    material->restitution = 0.0f;
+    material->strain_limit = 0.0f;
+    material->strain_limit_stiffness = 100000.0f;
+}
+
+KcsSolver *kcsCreate(const KcsSolverDesc *desc) {
+    KcsSolverDesc value{};
+    if (desc) {
+        value = *desc;
+    } else {
+        kcsDefaultSolverDesc(&value);
+    }
+    if (!valid_solver_desc(value)) {
+        set_global_error("invalid KcsSolverDesc");
+        return nullptr;
+    }
+    try {
+        KcsSolver *solver = new KcsSolver(value);
+        g_last_error.clear();
+        return solver;
+    } catch (const std::bad_alloc &) {
+        set_global_error("out of memory while creating solver");
+    } catch (const std::exception &e) {
+        set_global_error(e.what());
+    } catch (...) {
+        set_global_error("unknown exception while creating solver");
+    }
+    return nullptr;
+}
+
+void kcsDestroy(KcsSolver *solver) { delete solver; }
+
+KcsResult kcsSetStaticMesh(KcsSolver *solver, const KcsVec3 *vertices,
+                           uint32_t vertex_count,
+                           const KcsTriangle *triangles,
+                           uint32_t triangle_count) {
+    if (!solver) return fail(nullptr, KCS_ERROR_INVALID_ARGUMENT, "solver is null");
+    try {
+        return solver->impl.set_static_mesh(vertices, vertex_count, triangles,
+                                            triangle_count)
+                   ? KCS_OK
+                   : KCS_ERROR_INVALID_MESH;
+    } catch (const std::bad_alloc &) {
+        return fail(solver, KCS_ERROR_OUT_OF_MEMORY, "out of memory while setting STATIC mesh");
+    } catch (const std::exception &e) {
+        return fail(solver, KCS_ERROR_INTERNAL, e.what());
+    } catch (...) {
+        return fail(solver, KCS_ERROR_INTERNAL, "unknown error while setting STATIC mesh");
+    }
+}
+
+KcsResult kcsUpdateStaticVertices(KcsSolver *solver,
+                                  const KcsVec3 *vertices,
+                                  uint32_t vertex_count) {
+    if (!solver) {
+        return fail(nullptr, KCS_ERROR_INVALID_ARGUMENT, "solver is null");
+    }
+    if (!solver->impl.built()) {
+        return fail(solver, KCS_ERROR_INVALID_STATE,
+                    "kcsBuild must succeed before updating STATIC vertices");
+    }
+    if (!vertices || vertex_count != solver->impl.static_vertex_count()) {
+        return fail(solver, KCS_ERROR_INVALID_ARGUMENT,
+                    "animated STATIC vertex array is null or has the wrong size");
+    }
+    try {
+        return solver->impl.update_static_vertices(vertices, vertex_count)
+                   ? KCS_OK
+                   : KCS_ERROR_INVALID_MESH;
+    } catch (const std::bad_alloc &) {
+        return fail(solver, KCS_ERROR_OUT_OF_MEMORY,
+                    "out of memory while updating STATIC vertices");
+    } catch (const std::exception &e) {
+        return fail(solver, KCS_ERROR_INTERNAL, e.what());
+    } catch (...) {
+        return fail(solver, KCS_ERROR_INTERNAL,
+                    "unknown error while updating STATIC vertices");
+    }
+}
+
+KcsResult kcsSetShellMesh(KcsSolver *solver, const KcsVec3 *vertices,
+                          uint32_t vertex_count,
+                          const KcsTriangle *triangles,
+                          uint32_t triangle_count,
+                          const KcsShellMaterial *material) {
+    if (!solver || !material) {
+        return fail(solver, KCS_ERROR_INVALID_ARGUMENT, "solver or material is null");
+    }
+    if (!valid_material(*material)) {
+        return fail(solver, KCS_ERROR_INVALID_ARGUMENT, "invalid KcsShellMaterial");
+    }
+    try {
+        return solver->impl.set_shell_mesh(vertices, vertex_count, triangles,
+                                           triangle_count, *material)
+                   ? KCS_OK
+                   : KCS_ERROR_INVALID_MESH;
+    } catch (const std::bad_alloc &) {
+        return fail(solver, KCS_ERROR_OUT_OF_MEMORY, "out of memory while setting SHELL mesh");
+    } catch (const std::exception &e) {
+        return fail(solver, KCS_ERROR_INTERNAL, e.what());
+    } catch (...) {
+        return fail(solver, KCS_ERROR_INTERNAL, "unknown error while setting SHELL mesh");
+    }
+}
+
+KcsResult kcsSetShellSeams(KcsSolver *solver, const KcsSeam *seams,
+                           uint32_t seam_count) {
+    if (!solver) {
+        return fail(nullptr, KCS_ERROR_INVALID_ARGUMENT, "solver is null");
+    }
+    try {
+        return solver->impl.set_shell_seams(seams, seam_count)
+                   ? KCS_OK
+                   : KCS_ERROR_INVALID_MESH;
+    } catch (const std::bad_alloc &) {
+        return fail(solver, KCS_ERROR_OUT_OF_MEMORY,
+                    "out of memory while setting SHELL seams");
+    } catch (const std::exception &e) {
+        return fail(solver, KCS_ERROR_INTERNAL, e.what());
+    } catch (...) {
+        return fail(solver, KCS_ERROR_INTERNAL,
+                    "unknown error while setting SHELL seams");
+    }
+}
+
+KcsResult kcsBuild(KcsSolver *solver) {
+    if (!solver) return fail(nullptr, KCS_ERROR_INVALID_ARGUMENT, "solver is null");
+    try {
+        return solver->impl.build() ? KCS_OK : KCS_ERROR_INVALID_MESH;
+    } catch (const std::bad_alloc &) {
+        return fail(solver, KCS_ERROR_OUT_OF_MEMORY, "out of memory while building solver");
+    } catch (const std::exception &e) {
+        return fail(solver, KCS_ERROR_INTERNAL, e.what());
+    } catch (...) {
+        return fail(solver, KCS_ERROR_INTERNAL, "unknown error while building solver");
+    }
+}
+
+KcsResult kcsStep(KcsSolver *solver, float frame_dt) {
+    if (!solver || !(frame_dt > 0.0f)) {
+        return fail(solver, KCS_ERROR_INVALID_ARGUMENT, "solver is null or frame_dt is not positive");
+    }
+    if (!solver->impl.built()) {
+        return fail(solver, KCS_ERROR_INVALID_STATE, "kcsBuild must succeed before kcsStep");
+    }
+    try {
+        return solver->impl.step(frame_dt) ? KCS_OK : KCS_ERROR_NUMERICAL_FAILURE;
+    } catch (const std::bad_alloc &) {
+        return fail(solver, KCS_ERROR_OUT_OF_MEMORY, "out of memory during step");
+    } catch (const std::exception &e) {
+        return fail(solver, KCS_ERROR_INTERNAL, e.what());
+    } catch (...) {
+        return fail(solver, KCS_ERROR_INTERNAL, "unknown error during step");
+    }
+}
+
+uint32_t kcsGetShellVertexCount(const KcsSolver *solver) {
+    return solver ? solver->impl.vertex_count() : 0u;
+}
+
+KcsResult kcsCopyShellPositions(const KcsSolver *solver, KcsVec3 *positions,
+                                uint32_t capacity) {
+    if (!solver || !positions || capacity < solver->impl.vertex_count()) {
+        return fail(const_cast<KcsSolver *>(solver), KCS_ERROR_INVALID_ARGUMENT,
+                    "position output buffer is null or too small");
+    }
+    const auto &src = solver->impl.positions();
+    for (size_t i = 0; i < src.size(); ++i) {
+        positions[i] = {src[i].x, src[i].y, src[i].z};
+    }
+    return KCS_OK;
+}
+
+KcsResult kcsCopyShellVelocities(const KcsSolver *solver, KcsVec3 *velocities,
+                                 uint32_t capacity) {
+    if (!solver || !velocities || capacity < solver->impl.vertex_count()) {
+        return fail(const_cast<KcsSolver *>(solver), KCS_ERROR_INVALID_ARGUMENT,
+                    "velocity output buffer is null or too small");
+    }
+    const auto &src = solver->impl.velocities();
+    for (size_t i = 0; i < src.size(); ++i) {
+        velocities[i] = {src[i].x, src[i].y, src[i].z};
+    }
+    return KCS_OK;
+}
+
+KcsResult kcsGetLastStepStats(const KcsSolver *solver, KcsStepStats *stats) {
+    if (!solver || !stats || stats->struct_size != sizeof(KcsStepStats)) {
+        return fail(const_cast<KcsSolver *>(solver), KCS_ERROR_INVALID_ARGUMENT,
+                    "invalid KcsStepStats output");
+    }
+    const kcs::StepStats &src = solver->impl.stats();
+    stats->substeps = src.substeps;
+    stats->pd_iterations = src.pd_iterations;
+    stats->pcg_iterations = src.pcg_iterations;
+    stats->contact_count = src.contacts;
+    stats->final_pcg_relative_residual = src.residual;
+    stats->strain_limit_projection_count = src.strain_limit_projections;
+    stats->maximum_principal_stretch = src.maximum_principal_stretch;
+    return KCS_OK;
+}
+
+const char *kcsGetLastError(const KcsSolver *solver) {
+    return solver ? solver->impl.error().c_str() : g_last_error.c_str();
+}
+
+} // extern "C"

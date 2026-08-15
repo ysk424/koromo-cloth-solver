@@ -6,8 +6,7 @@ import bpy
 
 
 _JA = {
-    "Yarn-level Knitwear Solver": "糸レベル編地ソルバー",
-    "YLKS Cloth": "YLKS 布",
+    "Koromo": "衣",
     "Source Objects": "入力オブジェクト",
     "Source SHELL": "服（SHELL）",
     "Source BODY": "ボディ（BODY）",
@@ -118,7 +117,7 @@ _JA = {
     "Seam Attribute changed; run Prepare again": "縫合属性が変更されています。もう一度準備してください",
     "STATIC crop setting changed; run Prepare again": "ボディ切り抜き設定が変更されています。もう一度準備してください",
     "STATIC crop range changed; run Prepare again": "ボディ切り抜き範囲が変更されています。もう一度準備してください",
-    "SHELL has Shape Keys that are not owned by Yarn-level Knitwear Solver": "服に糸レベル編地ソルバー以外が作成したシェイプキーがあります",
+    "SHELL has Shape Keys that are not owned by Koromo": "服に「衣」以外が作成したシェイプキーがあります",
     "Prepared BODY has no usable triangles": "準備済みのボディに使用可能な三角形がありません",
     "SHELL has no triangles": "服に三角形がありません",
     "STATIC has no triangles": "ボディに三角形がありません",
@@ -128,9 +127,9 @@ _JA = {
     "Assign the active mesh as the deformable SHELL": "アクティブなメッシュを変形する服として指定します",
     "Assign the active mesh as the animated body collider": "アクティブなメッシュをアニメーションするボディコライダーとして指定します",
     "Create simulation copies and preserve the BODY animation modifier stack": "シミュレーション用コピーを作成し、ボディのアニメーションモディファイアを維持します",
-    "Remove simulation copies created by Yarn-level Knitwear Solver": "糸レベル編地ソルバーが作成したシミュレーション用コピーを削除します",
+    "Remove simulation copies created by Koromo": "「衣」が作成したシミュレーション用コピーを削除します",
     "Run the OpenMP solver and bake absolute Shape Keys": "OpenMPソルバーを実行し、絶対シェイプキーへベイクします",
-    "Remove Shape Keys created by Yarn-level Knitwear Solver": "糸レベル編地ソルバーが作成したシェイプキーを削除します",
+    "Remove Shape Keys created by Koromo": "「衣」が作成したシェイプキーを削除します",
     "Source garment evaluated at the first bake frame": "ベイク開始フレームで評価する服オブジェクト",
     "Source collision body whose animation modifiers are copied and evaluated every frame": "アニメーションモディファイアを維持し、毎フレーム評価するボディ",
     "Keep a topology-stable animated collision band between two world-Z planes": "2つのワールドZ平面の間を、トポロジー固定のアニメーションコライダーとして使用します",

@@ -1,4 +1,4 @@
-# Yarn-level Knitwear Solver for Blender
+# Koromo for Blender
 
 This Windows x64 Blender Extension bakes a stitched continuum cloth shell
 against a topology-stable animated body collider. The bundled CPU/OpenMP DLL
@@ -6,7 +6,8 @@ writes results as absolute Shape Keys; source objects are not modified.
 
 1. Install the generated ZIP using **Edit > Preferences > Extensions > Install
    from Disk**.
-2. Open **3D View > Sidebar > YLKS Cloth**.
+2. Open **3D View > Sidebar > Koromo**. With Blender's interface language set
+   to Japanese, the tab and panel name are shown as **衣**.
 3. Assign the garment as source `SHELL` and the animated body as source
    `BODY`.
 4. Keep **Crop BODY** enabled to use the world-Z range 0.40–1.45 m, then run
@@ -39,6 +40,6 @@ notices for the native solver core and statically linked Windows runtimes are
 included in `THIRD_PARTY_NOTICES.md`.
 
 Corresponding source is available from
-`https://github.com/ysk424/Yarn-level-knitware-solver` and
-`https://github.com/ysk424/omp-contact-solver` (native core commit
-`ddf5cfae1c74266082e5c0da18aa1f53c78e6b05`).
+`https://github.com/ysk424/koromo-cloth-solver`. The native core was derived
+from `ysk424/omp-contact-solver` commit
+`ddf5cfae1c74266082e5c0da18aa1f53c78e6b05`; its MIT notice is retained.

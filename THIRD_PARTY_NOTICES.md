@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-Yarn-level Knitwear Solver is distributed under GNU GPL version 3 or
+Koromo is distributed under GNU GPL version 3 or
 later. Its Windows DLL incorporates or is built from the components below.
 The following notices are retained without changing their original terms.
 
@@ -36,8 +36,6 @@ SOFTWARE.
 The MinGW Windows DLL is compiled with GCC 16.1.0 and statically links
 runtime components including libgcc, libstdc++, and libgomp. These runtime
 components are covered by GPLv3 with the GCC Runtime Library Exception 3.1.
-
-curl: (22) The requested URL returned error: 429
 
 ## MinGW-w64 runtime and winpthreads
 

@@ -1,15 +1,14 @@
-# Yarn-level-knitware-solver
+# koromo-cloth-solver
 
-Windows DLL for treating a triangulated garment as a continuum cloth shell.
-Despite the project name, this first implementation is **not** a yarn/rod-level
-reproduction of the SIGGRAPH 2026 paper. It provides the Blender-facing shell,
-animated body-collider, explicit seam threads and iterative PD/ADMM foundation
-needed before replacing individual material projections with Nested
-Douglas--Rachford projections.
+Koromo is a Windows DLL and Blender Extension for treating a triangulated
+garment as a continuum cloth shell. This implementation is **not** a yarn/rod-
+level reproduction of the SIGGRAPH 2026 paper. It provides the Blender-facing
+shell, animated body collider, explicit seam threads and iterative PD/ADMM
+foundation needed before replacing individual material projections with
+Nested Douglas--Rachford projections.
 
-The native core is compiled into this DLL from the validated sibling
-`../omp-contact-solver` source. The resulting DLL is standalone; a second solver
-DLL is not loaded at runtime.
+The native core, public C header and tests are all contained in this repository.
+No sibling solver repository, solver-source path, or second solver DLL is needed.
 
 ## Build and test
 
@@ -19,20 +18,20 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-Output: `build/yarn_level_knitware_solver.dll`.
+Output: `build/koromo_cloth_solver.dll`.
 
 To build the installable Blender Extension ZIP with the ZIP-distribution
 Blender 5.2 executable:
 
 ```powershell
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release `
-  -DYLKS_BLENDER_EXECUTABLE=C:/Users/azoo/git/build_windows_Release_x64_vc17_Release/bin/blender.exe
+  -DKOROMO_BLENDER_EXECUTABLE=C:/Users/azoo/git/build_windows_Release_x64_vc17_Release/bin/blender.exe
 cmake --build build --target blender-extension-test
 cmake --build build --target blender-extension
 ```
 
 Output:
-`build/packages/yarn_level_knitware_solver-0.3.1-windows-x64.zip`.
+`build/packages/koromo_cloth_solver-0.4.0-windows-x64.zip`.
 
 ## Blender data flow
 
@@ -83,15 +82,15 @@ not yet implemented.
 
 ## License
 
-Yarn-level Knitwear Solver is free software under GNU GPL version 3 or later.
+Koromo is free software under GNU GPL version 3 or later.
 The implementation is independent of the referenced paper's source code.
 Bundled native runtime and MIT-core notices are preserved in
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
-The corresponding source for a distributed DLL is this repository together
-with `ysk424/omp-contact-solver` commit
-`ddf5cfae1c74266082e5c0da18aa1f53c78e6b05`, which supplies the native files
-compiled by `CMakeLists.txt`.
+The corresponding source for a distributed DLL is this repository. The native
+core was derived from `ysk424/omp-contact-solver` commit
+`ddf5cfae1c74266082e5c0da18aa1f53c78e6b05`; its MIT notice is retained in the
+third-party notices.
 
 日本語の現状、再現手順、仕様差、次回作業は
 [`docs/HANDOFF_JA.md`](docs/HANDOFF_JA.md) を参照してください。
