@@ -31,7 +31,7 @@ cmake --build build --target blender-extension
 ```
 
 Output:
-`build/packages/koromo_cloth_solver-0.5.1-windows-x64.zip`.
+`build/packages/koromo_cloth_solver-0.5.2-windows-x64.zip`.
 
 ## Blender data flow
 
@@ -58,6 +58,12 @@ Write `cloth_positions` to a simulation copy of the garment or bake them into
 absolute Shape Keys. Do not mutate the user's source mesh. Both inputs must be
 triangulated and use the same coordinate space. The body may deform every frame,
 but its topology must remain stable.
+
+Animated BODY contact uses both the previous and current substep geometry.
+When a moving body surface sweeps through a nearly stationary garment vertex,
+Koromo preserves the vertex's previous side and pushes it along with the body.
+Substeps still control simulation accuracy, but body motion no longer has to be
+smaller than the cloth thickness merely to avoid collider tunnelling.
 
 ## Blender Extension workflow
 

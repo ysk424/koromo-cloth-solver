@@ -36,6 +36,12 @@ evaluated topology must remain stable throughout the bake. The cropped body
 can have open boundaries because collision is two-sided and does not use
 inside/outside parity.
 
+Koromo compares the previous and current BODY geometry within every substep.
+A moving BODY surface therefore pushes cloth on the side where it started,
+even when the cloth vertex itself barely moves. Substeps remain an accuracy
+setting and are no longer the only protection against animated-collider
+tunnelling.
+
 Current limitations include no pins, edge-edge contact, exact CCD, yarn rods,
 or yarn twisting/sliding terms. Self-collision is intentionally not part of
 the current HOU workflow.

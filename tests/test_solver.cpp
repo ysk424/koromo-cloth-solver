@@ -415,6 +415,63 @@ void test_animated_static_refit() {
     kcsDestroy(solver);
 }
 
+void test_animated_static_sweep_pushes_shell() {
+    auto run = [](float start_y, float end_y) {
+        KcsSolverDesc desc;
+        kcsDefaultSolverDesc(&desc);
+        desc.gravity = {0.0f, 0.0f, 0.0f};
+        desc.substeps = 1;
+        desc.pd_iterations = 4;
+        desc.pcg_iterations = 80;
+        KcsSolver *solver = kcsCreate(&desc);
+        require(solver != nullptr, "create moving-collider sweep solver");
+
+        const KcsVec3 collider_start[] = {
+            {-2.0f, start_y, -2.0f}, {2.0f, start_y, -2.0f},
+            {2.0f, start_y, 2.0f}, {-2.0f, start_y, 2.0f}};
+        const KcsVec3 collider_end[] = {
+            {-2.0f, end_y, -2.0f}, {2.0f, end_y, -2.0f},
+            {2.0f, end_y, 2.0f}, {-2.0f, end_y, 2.0f}};
+        const KcsTriangle collider_triangles[] = {{0, 2, 1}, {0, 3, 2}};
+        require_ok(kcsSetStaticMesh(solver, collider_start, 4,
+                                    collider_triangles, 2),
+                   solver, "set sweeping animated STATIC start");
+
+        const KcsVec3 shell_vertices[] = {
+            {-0.2f, 0.0f, -0.2f}, {0.2f, 0.0f, -0.2f},
+            {0.0f, 0.0f, 0.2f}};
+        const KcsTriangle shell_triangle[] = {{0, 1, 2}};
+        KcsShellMaterial material;
+        kcsDefaultShellMaterial(&material);
+        material.thickness = 0.02f;
+        require_ok(kcsSetShellMesh(solver, shell_vertices, 3,
+                                   shell_triangle, 1, &material),
+                   solver, "set moving-collider sweep SHELL");
+        require_ok(kcsBuild(solver), solver,
+                   "build moving-collider sweep solver");
+        require_ok(kcsUpdateStaticVertices(solver, collider_end, 4), solver,
+                   "queue sweeping animated STATIC vertices");
+        require_ok(kcsStep(solver, 1.0f / 24.0f), solver,
+                   "step sweeping animated STATIC");
+
+        KcsVec3 result[3];
+        require_ok(kcsCopyShellPositions(solver, result, 3), solver,
+                   "copy moving-collider sweep positions");
+        const float direction = end_y > start_y ? 1.0f : -1.0f;
+        for (KcsVec3 point : result) {
+            require(direction * (point.y - end_y) >=
+                        material.thickness * 0.95f,
+                    "moving STATIC must push SHELL along collider motion");
+        }
+        kcsDestroy(solver);
+    };
+
+    // The collider ends far beyond the contact thickness on both passes.
+    // Endpoint proximity and the cloth vertex's own sweep both miss these.
+    run(-0.10f, 0.10f);
+    run(0.10f, -0.10f);
+}
+
 } // namespace
 
 int main() {
@@ -428,6 +485,7 @@ int main() {
     test_openmp_sized_mesh();
     test_swept_floor_contact();
     test_animated_static_refit();
+    test_animated_static_sweep_pushes_shell();
     std::puts("All Koromo solver tests passed.");
     return 0;
 }

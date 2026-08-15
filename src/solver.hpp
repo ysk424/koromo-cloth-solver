@@ -63,6 +63,8 @@ public:
         float distance_squared = 0.0f;
         Vec3 point;
         Vec3 normal;
+        uint32_t vertex[3]{};
+        float barycentric[3]{};
     };
 
     struct SegmentHit {
@@ -180,6 +182,7 @@ private:
     std::vector<Vec3> static_vertices_;
     std::vector<Vec3> static_target_vertices_;
     std::vector<Vec3> static_substep_vertices_;
+    std::vector<Vec3> static_previous_substep_vertices_;
     std::vector<KcsTriangle> static_triangles_;
     std::vector<KcsTriangle> shell_triangles_;
     std::vector<KcsSeam> shell_seams_;
@@ -212,6 +215,7 @@ private:
     std::vector<uint8_t> contacted_;
     std::vector<uint8_t> active_contacts_;
     float contact_weight_ = 0.0f;
+    float static_motion_radius_ = 0.0f;
     bool static_update_pending_ = false;
 
     StepStats stats_{};

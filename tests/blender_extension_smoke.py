@@ -29,7 +29,7 @@ def main():
     stage = Path(options.extension_stage).resolve()
     manifest = (stage / "blender_manifest.toml").read_text(encoding="utf-8")
     assert 'id = "koromo_cloth_solver"' in manifest
-    assert 'version = "0.5.1"' in manifest
+    assert 'version = "0.5.2"' in manifest
     assert 'name = "Koromo"' in manifest
     assert 'license = ["SPDX:GPL-3.0-or-later"]' in manifest
     assert (stage / "LICENSE").read_text(encoding="utf-8").startswith(

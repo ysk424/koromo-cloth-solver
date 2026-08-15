@@ -133,6 +133,29 @@ Vec3 closest_point_triangle(Vec3 p, Vec3 a, Vec3 b, Vec3 c) {
     return a + ab * v + ac * w;
 }
 
+void triangle_barycentric(Vec3 p, Vec3 a, Vec3 b, Vec3 c,
+                          float (&weights)[3]) {
+    const Vec3 ab = b - a;
+    const Vec3 ac = c - a;
+    const Vec3 ap = p - a;
+    const float d00 = dot(ab, ab);
+    const float d01 = dot(ab, ac);
+    const float d11 = dot(ac, ac);
+    const float d20 = dot(ap, ab);
+    const float d21 = dot(ap, ac);
+    const float denominator = d00 * d11 - d01 * d01;
+    if (!(std::abs(denominator) > kEpsilon * kEpsilon)) {
+        weights[0] = 1.0f;
+        weights[1] = 0.0f;
+        weights[2] = 0.0f;
+        return;
+    }
+    const float inverse = 1.0f / denominator;
+    weights[1] = (d11 * d20 - d01 * d21) * inverse;
+    weights[2] = (d00 * d21 - d01 * d20) * inverse;
+    weights[0] = 1.0f - weights[1] - weights[2];
+}
+
 bool segment_triangle(Vec3 p0, Vec3 p1, Vec3 a, Vec3 b, Vec3 c,
                       float &time) {
     const Vec3 d = p1 - p0;
@@ -380,6 +403,12 @@ StaticBvh::ClosestHit StaticBvh::closest_within(Vec3 point, float radius) const 
                     result.distance_squared = d2;
                     result.point = q;
                     result.normal = t.normal;
+                    result.vertex[0] = t.i[0];
+                    result.vertex[1] = t.i[1];
+                    result.vertex[2] = t.i[2];
+                    triangle_barycentric(
+                        q, vertices_[t.i[0]], vertices_[t.i[1]],
+                        vertices_[t.i[2]], result.barycentric);
                 }
             }
         } else {
@@ -578,6 +607,8 @@ bool Solver::build() {
     }
     static_target_vertices_ = static_vertices_;
     static_substep_vertices_.resize(static_vertices_.size());
+    static_previous_substep_vertices_.resize(static_vertices_.size());
+    static_motion_radius_ = 0.0f;
     static_update_pending_ = false;
     built_ = true;
     return true;
@@ -1043,6 +1074,57 @@ uint64_t Solver::resolve_collisions(const std::vector<Vec3> &from,
             has_contact = true;
         }
 
+        // A deforming collider can sweep through a nearly stationary cloth
+        // vertex without intersecting the cloth vertex's own motion segment.
+        // Recover the previous position of the closest current triangle from
+        // its barycentric coordinates, preserve the cloth vertex's previous
+        // side, and let the moving surface push it to the same side now.
+        if (static_motion_radius_ > kEpsilon) {
+            const StaticBvh::ClosestHit moving = static_bvh_.closest_within(
+                p, thickness + skin + static_motion_radius_);
+            if (moving.hit) {
+                const Vec3 previous_a =
+                    static_previous_substep_vertices_[moving.vertex[0]];
+                const Vec3 previous_b =
+                    static_previous_substep_vertices_[moving.vertex[1]];
+                const Vec3 previous_c =
+                    static_previous_substep_vertices_[moving.vertex[2]];
+                const Vec3 previous_point =
+                    previous_a * moving.barycentric[0] +
+                    previous_b * moving.barycentric[1] +
+                    previous_c * moving.barycentric[2];
+                Vec3 previous_normal =
+                    cross(previous_b - previous_a, previous_c - previous_a);
+                const float previous_normal_length = length(previous_normal);
+                if (previous_normal_length > kEpsilon) {
+                    previous_normal = previous_normal / previous_normal_length;
+                    if (dot(previous_normal, moving.normal) < 0.0f) {
+                        previous_normal *= -1.0f;
+                    }
+                    const float previous_distance =
+                        dot(from[vi] - previous_point, previous_normal);
+                    const float current_distance =
+                        dot(p - moving.point, moving.normal);
+                    const float surface_motion =
+                        dot(moving.point - previous_point, moving.normal);
+                    float side = previous_distance >= 0.0f ? 1.0f : -1.0f;
+                    if (std::abs(previous_distance) < kEpsilon &&
+                        std::abs(surface_motion) > kEpsilon) {
+                        side = surface_motion >= 0.0f ? 1.0f : -1.0f;
+                    }
+                    const float previous_on_side = side * previous_distance;
+                    const float current_on_side = side * current_distance;
+                    const bool approached =
+                        current_on_side < previous_on_side - kEpsilon;
+                    if (approached && current_on_side < thickness + skin) {
+                        normal = moving.normal * side;
+                        p = moving.point + normal * (thickness + skin);
+                        has_contact = true;
+                    }
+                }
+            }
+        }
+
         positions[vi] = p;
         if (has_contact) {
             contact_normals[vi] = normal;
@@ -1067,12 +1149,29 @@ bool Solver::step(float frame_dt) {
     const float damping = std::exp(-desc_.velocity_damping * h);
     const int64_t n = static_cast<int64_t>(positions_.size());
     const int64_t nc = static_cast<int64_t>(constraints_.size());
+    static_motion_radius_ = 0.0f;
+    if (static_update_pending_) {
+        float maximum_frame_motion_squared = 0.0f;
+        for (size_t i = 0; i < static_vertices_.size(); ++i) {
+            maximum_frame_motion_squared = std::max(
+                maximum_frame_motion_squared,
+                length_squared(static_target_vertices_[i] - static_vertices_[i]));
+        }
+        static_motion_radius_ =
+            std::sqrt(maximum_frame_motion_squared) /
+            static_cast<float>(desc_.substeps);
+    }
     for (uint32_t substep = 0; substep < desc_.substeps; ++substep) {
         if (!strain_incidence_.empty()) {
             std::fill(strain_dual_.begin(), strain_dual_.end(),
                       StrainProjection{});
         }
         if (static_update_pending_) {
+            if (substep == 0u) {
+                static_previous_substep_vertices_ = static_vertices_;
+            } else {
+                static_previous_substep_vertices_.swap(static_substep_vertices_);
+            }
             const float alpha = static_cast<float>(substep + 1u) /
                                 static_cast<float>(desc_.substeps);
             const int64_t static_count =
