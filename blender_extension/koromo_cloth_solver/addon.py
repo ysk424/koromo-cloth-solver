@@ -706,12 +706,12 @@ class KOROMO_Settings(PropertyGroup):
     bend_stiffness: FloatProperty(name="Bend", default=5.0, min=0.0, max=1.0e9)
     strain_limit_enabled: BoolProperty(
         name="Strain Limit",
-        description="Couple a per-triangle principal-stretch bound into the PD/ADMM system",
+        description="Couple per-triangle tension and compression bounds into the PD/ADMM system",
         default=True,
     )
     strain_limit_percent: FloatProperty(
-        name="Maximum Stretch",
-        description="Maximum projected tensile principal strain in percent",
+        name="Maximum In-Plane Strain",
+        description="Maximum absolute projected principal strain; 5% keeps triangle stretches between 0.95 and 1.05",
         default=5.0,
         min=0.1,
         max=100.0,
@@ -720,7 +720,7 @@ class KOROMO_Settings(PropertyGroup):
     )
     strain_limit_stiffness: FloatProperty(
         name="Limit Solver Weight",
-        description="ADMM penalty weight controlling strain-limit convergence",
+        description="ADMM penalty weight controlling tension and compression convergence",
         default=1000000.0,
         min=1.0,
         max=1.0e9,

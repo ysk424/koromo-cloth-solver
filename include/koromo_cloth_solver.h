@@ -74,8 +74,8 @@ typedef struct KcsShellMaterial {
     float thickness;
     float friction;
     float restitution;
-    /* Maximum tensile principal strain as a fraction (0 disables it).
-     * For example, 0.05 limits the projected triangle stretch to 5%. */
+    /* Maximum absolute in-plane principal strain as a fraction (0 disables
+     * it). For example, 0.05 projects triangle stretches to [0.95, 1.05]. */
     float strain_limit;
     /* Projective-Dynamics/ADMM penalty weight for strain convergence. */
     float strain_limit_stiffness;

@@ -258,6 +258,71 @@ void test_triangle_strain_limit() {
             "strain-limit statistics must report active projections");
 }
 
+void test_triangle_compression_limit() {
+    auto run = [](float limit, float stiffness, uint64_t *projections) {
+        KcsSolverDesc desc;
+        kcsDefaultSolverDesc(&desc);
+        desc.gravity = {0.0f, 0.0f, 0.0f};
+        desc.substeps = 4;
+        desc.pd_iterations = 10;
+        desc.pcg_iterations = 300;
+        desc.thread_count = 2;
+        KcsSolver *solver = kcsCreate(&desc);
+        require(solver != nullptr, "create compression-limit solver");
+
+        const KcsVec3 vertices[] = {
+            {0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f},
+            {0.0f, 1.0f, 0.0f}};
+        const KcsTriangle triangle[] = {{0, 1, 2}};
+        KcsShellMaterial material;
+        kcsDefaultShellMaterial(&material);
+        material.stretch_stiffness = 1.0f;
+        material.bend_stiffness = 0.0f;
+        material.strain_limit = limit;
+        material.strain_limit_stiffness = stiffness;
+        require_ok(kcsSetShellMesh(solver, vertices, 3, triangle, 1, &material),
+                   solver, "set compression-limit SHELL");
+        const KcsSeam seam[] = {{0, 1, 100000.0f}};
+        require_ok(kcsSetShellSeams(solver, seam, 1), solver,
+                   "set compressing seam");
+        require_ok(kcsBuild(solver), solver, "build compression-limit solver");
+
+        for (int frame = 0; frame < 12; ++frame) {
+            require_ok(kcsStep(solver, 1.0f / 24.0f), solver,
+                       "compression-limit step");
+            KcsStepStats stats{};
+            stats.struct_size = sizeof(stats);
+            require_ok(kcsGetLastStepStats(solver, &stats), solver,
+                       "compression-limit stats");
+            *projections += stats.strain_limit_projection_count;
+        }
+        KcsVec3 result[3];
+        require_ok(kcsCopyShellPositions(solver, result, 3), solver,
+                   "copy compression-limit positions");
+        const float twice_area = distance(
+            {0.0f, 0.0f, 0.0f},
+            {(result[1].y - result[0].y) * (result[2].z - result[0].z) -
+                 (result[1].z - result[0].z) * (result[2].y - result[0].y),
+             (result[1].z - result[0].z) * (result[2].x - result[0].x) -
+                 (result[1].x - result[0].x) * (result[2].z - result[0].z),
+             (result[1].x - result[0].x) * (result[2].y - result[0].y) -
+                 (result[1].y - result[0].y) * (result[2].x - result[0].x)});
+        kcsDestroy(solver);
+        return 0.5f * twice_area;
+    };
+
+    uint64_t unlimited_projections = 0u;
+    uint64_t limited_projections = 0u;
+    const float unlimited_area = run(0.0f, 0.0f, &unlimited_projections);
+    const float limited_area = run(0.05f, 1000000.0f, &limited_projections);
+    require(limited_area > unlimited_area * 4.0f,
+            "two-sided strain limit must resist in-plane collapse");
+    require(limited_area > 0.35f,
+            "five-percent compression limit must retain triangle area");
+    require(unlimited_projections == 0u && limited_projections > 0u,
+            "compression projections must be included in statistics");
+}
+
 void test_invalid_mesh() {
     KcsSolver *solver = kcsCreate(nullptr);
     require(solver != nullptr, "create invalid-mesh solver");
@@ -481,6 +546,7 @@ int main() {
     test_static_floor_contact();
     test_seam_thread();
     test_triangle_strain_limit();
+    test_triangle_compression_limit();
     test_invalid_mesh();
     test_openmp_sized_mesh();
     test_swept_floor_contact();

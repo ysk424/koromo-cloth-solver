@@ -31,7 +31,7 @@ cmake --build build --target blender-extension
 ```
 
 Output:
-`build/packages/koromo_cloth_solver-0.5.2-windows-x64.zip`.
+`build/packages/koromo_cloth_solver-0.5.3-windows-x64.zip`.
 
 ## Blender data flow
 
@@ -64,6 +64,11 @@ When a moving body surface sweeps through a nearly stationary garment vertex,
 Koromo preserves the vertex's previous side and pushes it along with the body.
 Substeps still control simulation accuracy, but body motion no longer has to be
 smaller than the cloth thickness merely to avoid collider tunnelling.
+
+The triangle strain limit is two-sided. A five-percent setting projects both
+tension and compression to principal stretches in `[0.95, 1.05]`. This keeps
+contact loads from progressively reducing garment surface area; visible size
+can still change when the preserved surface folds or drapes in 3D.
 
 ## Blender Extension workflow
 

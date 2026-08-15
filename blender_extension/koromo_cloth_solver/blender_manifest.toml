@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "koromo_cloth_solver"
-version = "0.5.2"
+version = "0.5.3"
 name = "Koromo"
 tagline = "Bake stitched continuum garments against animated bodies"
 maintainer = "ysk424"
