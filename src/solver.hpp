@@ -104,6 +104,7 @@ struct StrainConstraint {
     float gradient[3][2]{};
     float system[3][3]{};
     float weighted_area = 0.0f;
+    float minimum_stretch = 1.0f;
     float maximum_stretch = 1.0f;
 };
 

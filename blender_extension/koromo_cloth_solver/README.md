@@ -42,6 +42,12 @@ even when the cloth vertex itself barely moves. Substeps remain an accuracy
 setting and are no longer the only protection against animated-collider
 tunnelling.
 
+The strain limit bounds both tensile and compressive principal strain. At the
+default five percent, projected triangle stretches stay between 0.95 and 1.05
+instead of allowing contact pressure to progressively shrink garment area.
+Folding and draping may still reduce a part's three-dimensional bounding box
+without reducing its surface area.
+
 Current limitations include no pins, edge-edge contact, exact CCD, yarn rods,
 or yarn twisting/sliding terms. Self-collision is intentionally not part of
 the current HOU workflow.

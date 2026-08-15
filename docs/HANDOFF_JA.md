@@ -23,7 +23,7 @@ Blender Extensionも実装済みです。元オブジェクトとは別にシミ
 Bakeします。Boolean EDGE属性 `yohsai_zozo_stitch` がある場合は、その辺の両端を
 明示的な縫合ペアとしてDLLへ渡します。
 
-Extension 0.5.2では、従来の1メッシュ入力に加えてHOU衣服コレクション入力を
+Extension 0.5.3では、従来の1メッシュ入力に加えてHOU衣服コレクション入力を
 追加しました。`housei-sewing-plan/1.x`のパーツ指紋を検証し、全パーツを
 ワールド座標で1つのSHELLコピーへまとめ、縫いプランの正確な頂点ペアを使います。
 Housei／女郎花のPythonモジュールはimportせず、元のHOUパーツも変更しません。
@@ -33,6 +33,10 @@ Housei／女郎花のPythonモジュールはimportせず、元のHOUパーツ�
 ほぼ静止した布頂点を通過した場合も、布が元にいた面側を保って押し出します。
 サブステップは精度の設定として引き続き有効ですが、bodyの1回の移動量を
 布厚以下にしなければ衝突を拾えない、という制約はなくなりました。
+
+0.5.3では三角形の主伸びを上側だけでなく下側も投影します。最大面内ひずみ5%なら
+`[0.95, 1.05]`へ制限し、body接触で袖や裾の表面積が徐々に失われる現象を防ぎます。
+表面積を保ったまま折れたり垂れたりすることで外形寸法が小さくなる動きは残ります。
 
 元のBlenderオブジェクトを直接変更せず、シミュレーション用コピーまたは
 Shape Keyへ結果を書く前提です。DLL境界では全頂点を同じ座標空間にそろえます。
@@ -79,7 +83,7 @@ ctest --test-dir build --output-on-failure
 ```text
 build/koromo_cloth_solver.dll
 build/blender_bridge/native.py
-build/packages/koromo_cloth_solver-0.5.2-windows-x64.zip
+build/packages/koromo_cloth_solver-0.5.3-windows-x64.zip
 ```
 
 本プロジェクトとBlender ExtensionはGNU GPL version 3 or laterです。

@@ -186,8 +186,9 @@ float component(Vec3 v, int axis) {
     return axis == 0 ? v.x : (axis == 1 ? v.y : v.z);
 }
 
-float project_triangle_strain(Vec3 f0, Vec3 f1, float maximum_stretch,
-                              Vec3 &p0, Vec3 &p1) {
+float project_triangle_strain(Vec3 f0, Vec3 f1, float minimum_stretch,
+                              float maximum_stretch, Vec3 &p0, Vec3 &p1,
+                              bool &limited) {
     const float c00 = dot(f0, f0);
     const float c01 = dot(f0, f1);
     const float c11 = dot(f1, f1);
@@ -197,7 +198,8 @@ float project_triangle_strain(Vec3 f0, Vec3 f1, float maximum_stretch,
     const float lambda1 = std::max(0.5f * (c00 + c11 - discriminant), 0.0f);
     const float sigma0 = std::sqrt(lambda0);
     const float sigma1 = std::sqrt(lambda1);
-    if (!(sigma0 > maximum_stretch)) {
+    limited = sigma0 > maximum_stretch || sigma1 < minimum_stretch;
+    if (!limited) {
         p0 = f0;
         p1 = f1;
         return sigma0;
@@ -217,10 +219,12 @@ float project_triangle_strain(Vec3 f0, Vec3 f1, float maximum_stretch,
         vy = 1.0f;
     }
 
-    const float scale0 = maximum_stretch / sigma0;
-    const float scale1 = sigma1 > kEpsilon
-                             ? std::min(1.0f, maximum_stretch / sigma1)
-                             : 1.0f;
+    const float projected0 = std::clamp(
+        sigma0, minimum_stretch, maximum_stretch);
+    const float projected1 = std::clamp(
+        sigma1, minimum_stretch, maximum_stretch);
+    const float scale0 = sigma0 > kEpsilon ? projected0 / sigma0 : 1.0f;
+    const float scale1 = sigma1 > kEpsilon ? projected1 / sigma1 : 1.0f;
     const float wx = -vy;
     const float wy = vx;
     const float q00 = scale0 * vx * vx + scale1 * wx * wx;
@@ -781,6 +785,8 @@ bool Solver::build_strain_constraints() {
         constraint.weighted_area =
             enabled ? material_.strain_limit_stiffness * (0.5f * twice_area)
                     : 0.0f;
+        constraint.minimum_stretch =
+            std::max(0.0f, 1.0f - material_.strain_limit);
         constraint.maximum_stretch = 1.0f + material_.strain_limit;
         for (int i = 0; i < 3; ++i) {
             for (int j = 0; j < 3; ++j) {
@@ -832,11 +838,13 @@ float Solver::project_strain_constraints(const std::vector<Vec3> &positions,
         }
         f[0] += strain_dual_[ci].column[0];
         f[1] += strain_dual_[ci].column[1];
+        bool was_limited = false;
         const float stretch = project_triangle_strain(
-            f[0], f[1], constraint.maximum_stretch,
-            strain_projection_[ci].column[0], strain_projection_[ci].column[1]);
+            f[0], f[1], constraint.minimum_stretch,
+            constraint.maximum_stretch, strain_projection_[ci].column[0],
+            strain_projection_[ci].column[1], was_limited);
         maximum = std::max(maximum, stretch);
-        if (stretch > constraint.maximum_stretch) ++limited;
+        if (was_limited) ++limited;
     }
     if (limited_count) *limited_count = limited;
     return maximum;
