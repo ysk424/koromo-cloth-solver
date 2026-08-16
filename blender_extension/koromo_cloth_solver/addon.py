@@ -1,7 +1,9 @@
 """Blender UI and Shape Key bake pipeline for the Koromo solver DLL."""
 
+from array import array
 import json
 import math
+import tempfile
 
 import bpy
 from bpy.props import (
@@ -41,6 +43,8 @@ _STATIC_TWICE_AREA_FILTER = 1.25e-7
 _STATIC_CROP_GROUP = "KOROMO_STATIC_CROP"
 _STATIC_CROP_MODIFIER = "Koromo Static Crop"
 _DEFAULT_SEAM_ATTRIBUTE = "yohsai_zozo_stitch"
+_ADAPTIVE_EDGE_PERCENTILE = 0.10
+_ADAPTIVE_EDGE_FRACTION = 0.50
 _BAKE_RUNNING = False
 
 
@@ -524,6 +528,60 @@ def _world_to_local_flat(matrix, positions):
     return flattened
 
 
+def _adaptive_motion_threshold(vertices, triangles) -> float:
+    """Return a robust half-edge motion limit in world-space metres."""
+    edges = set()
+    for triangle in triangles:
+        for a, b in (
+            (triangle[0], triangle[1]),
+            (triangle[1], triangle[2]),
+            (triangle[2], triangle[0]),
+        ):
+            edges.add((a, b) if a < b else (b, a))
+    lengths = []
+    for a, b in edges:
+        distance = math.dist(vertices[a], vertices[b])
+        if math.isfinite(distance) and distance > 1.0e-9:
+            lengths.append(distance)
+    if not lengths:
+        raise RuntimeError("SHELL has no usable edges for adaptive substeps")
+    lengths.sort()
+    index = int(_ADAPTIVE_EDGE_PERCENTILE * (len(lengths) - 1))
+    return lengths[index] * _ADAPTIVE_EDGE_FRACTION
+
+
+def _maximum_vertex_motion(previous, current) -> float:
+    if len(previous) != len(current):
+        raise RuntimeError(
+            "Animated STATIC vertex count changed; use deformation-only modifiers"
+        )
+    maximum_squared = 0.0
+    for before, after in zip(previous, current):
+        dx = after[0] - before[0]
+        dy = after[1] - before[1]
+        dz = after[2] - before[2]
+        maximum_squared = max(maximum_squared, dx * dx + dy * dy + dz * dz)
+    return math.sqrt(maximum_squared)
+
+
+def _adaptive_step_calls(
+    motion: float,
+    motion_threshold: float,
+    base_substeps: int,
+    maximum_substeps: int,
+) -> tuple[int, bool]:
+    """Return solver calls and whether the requested effective count was capped."""
+    base_substeps = max(1, int(base_substeps))
+    maximum_substeps = max(base_substeps, int(maximum_substeps))
+    maximum_calls = max(1, maximum_substeps // base_substeps)
+    required_substeps = max(
+        base_substeps,
+        int(math.ceil(max(0.0, motion) / max(motion_threshold, 1.0e-9))),
+    )
+    requested_calls = max(1, int(math.ceil(required_substeps / base_substeps)))
+    return min(requested_calls, maximum_calls), requested_calls > maximum_calls
+
+
 def _set_linear_interpolation(action) -> None:
     if hasattr(action, "fcurves"):
         curves = action.fcurves
@@ -554,20 +612,51 @@ def _configure_absolute_shape_keys(shell, frame_start, frame_end) -> None:
         _set_linear_interpolation(action)
 
 
-def _tag_progress_redraw(context) -> None:
-    if bpy.app.background:
+def _progress_ui_region(context):
+    """Find only the initiating Screen's sidebar region, never another window."""
+    window = context.window
+    screen = window.screen if window is not None else None
+    if screen is None:
+        return window, screen, None
+    if (
+        context.area is not None
+        and context.area.type == "VIEW_3D"
+        and context.region is not None
+        and context.region.type == "UI"
+    ):
+        return window, screen, context.region
+    for area in screen.areas:
+        if area.type != "VIEW_3D":
+            continue
+        for region in area.regions:
+            if region.type == "UI":
+                return window, screen, region
+    return window, screen, None
+
+
+def _tag_progress_redraw(window, screen, region) -> None:
+    if bpy.app.background or window is None or screen is None or region is None:
         return
-    for window in context.window_manager.windows:
-        for area in window.screen.areas:
-            if area.type in {"VIEW_3D", "STATUSBAR"}:
-                area.tag_redraw()
+    # A workspace switch replaces window.screen. Do not leak progress redraws
+    # into the newly displayed Screen.
+    if window.screen != screen:
+        return
     try:
-        bpy.ops.wm.redraw_timer(type="DRAW_WIN_SWAP", iterations=1)
-    except RuntimeError:
+        region.tag_redraw()
+    except ReferenceError:
         pass
 
 
-def _set_bake_progress(context, settings, completed, total, frame=None) -> None:
+def _set_bake_progress(
+    settings,
+    completed,
+    total,
+    frame=None,
+    *,
+    progress_window=None,
+    progress_screen=None,
+    progress_region=None,
+) -> None:
     total = max(1, int(total))
     completed = max(0, min(int(completed), total))
     settings.bake_progress = completed / total
@@ -582,10 +671,7 @@ def _set_bake_progress(context, settings, completed, total, frame=None) -> None:
         )
     else:
         settings.bake_progress_text = tr("Preparing solver...")
-    context.window_manager.progress_update(completed)
-    if context.workspace is not None:
-        context.workspace.status_text_set(settings.bake_progress_text)
-    _tag_progress_redraw(context)
+    _tag_progress_redraw(progress_window, progress_screen, progress_region)
 
 
 def _reset_bake_progress(settings) -> None:
@@ -673,6 +759,18 @@ class KOROMO_Settings(PropertyGroup):
         subtype="XYZ",
     )
     substeps: IntProperty(name="Substeps", default=6, min=1, max=128)
+    adaptive_substeps_enabled: BoolProperty(
+        name="Adaptive BODY Substeps",
+        description="Sample large BODY motion at Blender subframes while keeping Substeps as the normal-frame minimum",
+        default=True,
+    )
+    adaptive_max_substeps: IntProperty(
+        name="Maximum Adaptive Substeps",
+        description="Upper bound for effective substeps on frames with large BODY motion",
+        default=128,
+        min=1,
+        max=1024,
+    )
     pd_iterations: IntProperty(name="PD Iterations", default=10, min=1, max=256)
     pcg_iterations: IntProperty(name="PCG Iterations", default=120, min=1, max=4096)
     pcg_tolerance: FloatProperty(
@@ -766,6 +864,7 @@ class KOROMO_Settings(PropertyGroup):
     last_contacts: StringProperty(name="Contacts", default="-")
     last_residual: StringProperty(name="PCG Residual", default="-")
     last_strain: StringProperty(name="Maximum Principal Stretch", default="-")
+    last_adaptive_status: StringProperty(default="-", options={"HIDDEN"})
     bake_in_progress: BoolProperty(default=False, options={"HIDDEN"})
     bake_progress: FloatProperty(
         default=0.0,
@@ -969,6 +1068,7 @@ class KOROMO_OT_prepare(Operator):
             settings.last_contacts = "-"
             settings.last_residual = "-"
             settings.last_strain = "-"
+            settings.last_adaptive_status = "-"
             _reset_bake_progress(settings)
 
             if hou_plan is not None:
@@ -1025,6 +1125,7 @@ class KOROMO_OT_clear_prepared(Operator):
         settings.last_contacts = "-"
         settings.last_residual = "-"
         settings.last_strain = "-"
+        settings.last_adaptive_status = "-"
         _reset_bake_progress(settings)
         self.report({"INFO"}, settings.last_status)
         return {"FINISHED"}
@@ -1052,10 +1153,331 @@ class KOROMO_OT_clear_bake(Operator):
         return {"FINISHED"}
 
 
+class _BakeJob:
+    """State shared by synchronous background and interactive modal bakes."""
+
+    def __init__(self, context, settings, shell, static):
+        self.scene = context.scene
+        self.settings = settings
+        self.shell = shell
+        self.static = static
+        self.old_frame = self.scene.frame_current
+        self.old_subframe = self.scene.frame_subframe
+        (
+            self.progress_window,
+            self.progress_screen,
+            self.progress_region,
+        ) = _progress_ui_region(context)
+        self.total_frames = settings.frame_end - settings.frame_start + 1
+        self.next_frame = settings.frame_start + 1
+        self.solver = None
+        self.cache = None
+        self.cache_value_count = 0
+        self.buffered_frames = 0
+        self.created_bake = False
+        self.static_topology = None
+        self.previous_static_vertices = None
+        self.motion_threshold = 0.0
+        self.frame_dt = 0.0
+        self.world_to_local = None
+        self.seam_pairs = []
+        self.final_stats = None
+        self.adaptive_frames = 0
+        self.adaptive_capped_frames = 0
+        self.peak_effective_substeps = int(settings.substeps)
+        self.maximum_body_motion = 0.0
+
+    def _set_progress(self, completed, frame=None):
+        _set_bake_progress(
+            self.settings,
+            completed,
+            self.total_frames,
+            frame,
+            progress_window=self.progress_window,
+            progress_screen=self.progress_screen,
+            progress_region=self.progress_region,
+        )
+
+    def _restore_display_frame(self, *, force=False):
+        if force or not bpy.app.background:
+            self.scene.frame_set(self.old_frame, subframe=self.old_subframe)
+
+    def prepare(self, context):
+        self._set_progress(0)
+        self.scene.frame_set(self.settings.frame_start)
+        if _owned_bake(self.shell):
+            _clear_owned_bake(self.shell)
+
+        shell_vertices, shell_triangles = _shell_mesh(self.shell)
+        depsgraph = context.evaluated_depsgraph_get()
+        (
+            static_vertices,
+            static_triangles,
+            skipped_static,
+            self.static_topology,
+        ) = _filtered_static_mesh(self.static, depsgraph)
+        self.seam_pairs = (
+            _prepared_seam_pairs(self.shell) if self.settings.seam_enabled else []
+        )
+        if not shell_triangles:
+            raise RuntimeError("SHELL has no triangles")
+        if not static_triangles:
+            raise RuntimeError("STATIC has no triangles")
+        self.settings.last_prepare_skipped = skipped_static
+
+        library = get_library()
+        desc = library.default_desc()
+        desc.gravity = Vec3(*self.settings.gravity)
+        desc.substeps = self.settings.substeps
+        desc.pd_iterations = self.settings.pd_iterations
+        desc.pcg_iterations = self.settings.pcg_iterations
+        desc.pcg_relative_tolerance = self.settings.pcg_tolerance
+        desc.collision_iterations = self.settings.collision_iterations
+        desc.velocity_damping = self.settings.velocity_damping
+        desc.thread_count = self.settings.thread_count
+
+        material = library.default_material()
+        material.density = self.settings.density
+        material.stretch_stiffness = self.settings.stretch_stiffness
+        material.bend_stiffness = self.settings.bend_stiffness
+        material.thickness = self.settings.thickness
+        material.friction = self.settings.friction
+        material.restitution = self.settings.restitution
+        material.strain_limit = (
+            self.settings.strain_limit_percent * 0.01
+            if self.settings.strain_limit_enabled
+            else 0.0
+        )
+        material.strain_limit_stiffness = self.settings.strain_limit_stiffness
+
+        fps = self.scene.render.fps / self.scene.render.fps_base
+        self.frame_dt = self.settings.time_scale / fps
+        self.world_to_local = self.shell.matrix_world.inverted_safe()
+        self.motion_threshold = _adaptive_motion_threshold(
+            shell_vertices, shell_triangles
+        )
+        self.previous_static_vertices = static_vertices
+        self.cache_value_count = len(shell_vertices) * 3
+        self.cache = tempfile.TemporaryFile(mode="w+b")
+
+        self.solver = library.create(desc)
+        self.solver.set_static_mesh(static_vertices, static_triangles)
+        self.solver.set_shell_mesh(shell_vertices, shell_triangles, material)
+        self.solver.set_shell_seams(
+            self.seam_pairs, self.settings.seam_stiffness
+        )
+        self.solver.build()
+        self._restore_display_frame()
+        self._set_progress(1, self.settings.frame_start)
+
+    def _evaluated_body(self, context):
+        depsgraph = context.evaluated_depsgraph_get()
+        vertices, topology = _evaluated_static_vertices(self.static, depsgraph)
+        if topology != self.static_topology:
+            raise RuntimeError(
+                "Animated STATIC topology changed; use deformation-only modifiers"
+            )
+        return vertices
+
+    def process_next_frame(self, context) -> bool:
+        frame = self.next_frame
+        if frame > self.settings.frame_end:
+            return False
+
+        self.scene.frame_set(frame)
+        endpoint_vertices = self._evaluated_body(context)
+        motion = _maximum_vertex_motion(
+            self.previous_static_vertices, endpoint_vertices
+        )
+        self.maximum_body_motion = max(self.maximum_body_motion, motion)
+        if self.settings.adaptive_substeps_enabled:
+            calls, capped = _adaptive_step_calls(
+                motion,
+                self.motion_threshold,
+                self.settings.substeps,
+                self.settings.adaptive_max_substeps,
+            )
+        else:
+            calls, capped = 1, False
+        if calls > 1:
+            self.adaptive_frames += 1
+        if capped:
+            self.adaptive_capped_frames += 1
+        self.peak_effective_substeps = max(
+            self.peak_effective_substeps,
+            calls * int(self.settings.substeps),
+        )
+
+        if calls > 1:
+            # The endpoint was evaluated first to choose the call count. Reset
+            # the depsgraph to the previous integer frame before sampling the
+            # interval in strictly increasing time order.
+            self.scene.frame_set(frame - 1)
+        for sample in range(1, calls + 1):
+            if sample == calls:
+                target_vertices = endpoint_vertices
+            else:
+                self.scene.frame_set(frame - 1, subframe=sample / calls)
+                target_vertices = self._evaluated_body(context)
+            self.solver.update_static_vertices(target_vertices)
+            self.solver.step(self.frame_dt / calls)
+            self.final_stats = self.solver.stats()
+
+        flattened = array(
+            "f",
+            _world_to_local_flat(self.world_to_local, self.solver.positions()),
+        )
+        flattened.tofile(self.cache)
+        self.buffered_frames += 1
+        self.previous_static_vertices = endpoint_vertices
+        self.next_frame += 1
+
+        # Never expose the evaluation frame or subframe to the visible Screen.
+        self._restore_display_frame()
+        completed = frame - self.settings.frame_start + 1
+        self._set_progress(completed, frame)
+        return self.next_frame <= self.settings.frame_end
+
+    def materialize_bake(self):
+        if self.buffered_frames != self.total_frames - 1:
+            raise RuntimeError("Simulation result buffer is incomplete")
+        self._restore_display_frame(force=True)
+        basis = self.shell.shape_key_add(name="Basis", from_mix=False)
+        basis.interpolation = "KEY_LINEAR"
+        keys = self.shell.data.shape_keys
+        keys[_BAKE_TAG] = 1
+        keys["frame_start"] = self.settings.frame_start
+        keys["frame_end"] = self.settings.frame_end
+        self.created_bake = True
+
+        self.cache.seek(0)
+        for frame in range(
+            self.settings.frame_start + 1, self.settings.frame_end + 1
+        ):
+            coordinates = array("f")
+            coordinates.fromfile(self.cache, self.cache_value_count)
+            shape = self.shell.shape_key_add(
+                name=f"KOROMO_{frame:06d}", from_mix=False
+            )
+            shape.interpolation = "KEY_LINEAR"
+            shape.data.foreach_set("co", coordinates)
+        _configure_absolute_shape_keys(
+            self.shell, self.settings.frame_start, self.settings.frame_end
+        )
+        self.shell.active_shape_key_index = 0
+        self.shell.show_only_shape_key = False
+        self._restore_display_frame(force=True)
+
+    def finish_success(self):
+        self.materialize_bake()
+        self.settings.last_status = tr(
+            "Baked {count} frames with {seams} seams and animated BODY; "
+            "cursor restored to frame {frame}",
+            count=self.total_frames,
+            seams=len(self.seam_pairs),
+            frame=self.scene.frame_current,
+        )
+        self.settings.bake_progress = 1.0
+        self.settings.bake_current_frame = self.settings.frame_end
+        self.settings.bake_progress_text = tr(
+            "Completed: {count} frames", count=self.total_frames
+        )
+        if self.settings.adaptive_substeps_enabled:
+            self.settings.last_adaptive_status = tr(
+                "{frames} frames; peak {substeps} substeps; max BODY motion {motion:.4g} m; capped {capped}",
+                frames=self.adaptive_frames,
+                substeps=self.peak_effective_substeps,
+                motion=self.maximum_body_motion,
+                capped=self.adaptive_capped_frames,
+            )
+        else:
+            self.settings.last_adaptive_status = tr("disabled")
+        if self.final_stats is not None:
+            self.settings.last_contacts = str(self.final_stats.contact_count)
+            self.settings.last_residual = (
+                f"{self.final_stats.final_pcg_relative_residual:.3g}"
+            )
+            self.settings.last_strain = tr(
+                "{percent:.2f}% ({count} projections)",
+                percent=(self.final_stats.maximum_principal_stretch - 1.0) * 100.0,
+                count=self.final_stats.strain_limit_projection_count,
+            )
+        self.close()
+        _tag_progress_redraw(
+            self.progress_window, self.progress_screen, self.progress_region
+        )
+
+    def finish_failure(self, error=None, *, cancelled=False):
+        if self.created_bake and _owned_bake(self.shell):
+            _clear_owned_bake(self.shell)
+        if cancelled:
+            self.settings.last_status = tr("Bake cancelled")
+            self.settings.bake_progress_text = tr("Bake cancelled")
+        else:
+            self.settings.last_status = tr(
+                "Bake failed: {error}", error=tr(str(error))
+            )
+            self.settings.bake_progress_text = tr(
+                "Stopped at frame {frame}", frame=self.settings.bake_current_frame
+            )
+        self.close()
+        _tag_progress_redraw(
+            self.progress_window, self.progress_screen, self.progress_region
+        )
+
+    def close(self):
+        if self.solver is not None:
+            self.solver.close()
+            self.solver = None
+        if self.cache is not None:
+            self.cache.close()
+            self.cache = None
+        self._restore_display_frame(force=True)
+
+
 class KOROMO_OT_bake(Operator):
     bl_idname = "koromo.bake"
     bl_label = "Bake Simulation"
     bl_description = "Run the OpenMP solver and bake absolute Shape Keys"
+
+    _job = None
+    _timer = None
+
+    def _release(self, context):
+        global _BAKE_RUNNING
+        if self._timer is not None:
+            context.window_manager.event_timer_remove(self._timer)
+            self._timer = None
+        settings = (
+            self._job.settings
+            if self._job is not None
+            else context.scene.koromo_settings
+        )
+        settings.bake_in_progress = False
+        _BAKE_RUNNING = False
+        self._job = None
+
+    def _fail(self, context, error, *, cancelled=False):
+        if self._job is not None:
+            self._job.finish_failure(error, cancelled=cancelled)
+            message = self._job.settings.last_status
+        else:
+            message = tr("Bake failed: {error}", error=tr(str(error)))
+        self.report({"WARNING" if cancelled else "ERROR"}, message)
+        self._release(context)
+        return {"CANCELLED"}
+
+    def _run_synchronous(self, context):
+        try:
+            while self._job.process_next_frame(context):
+                pass
+            self._job.finish_success()
+            message = self._job.settings.last_status
+            self.report({"INFO"}, message)
+            self._release(context)
+            return {"FINISHED"}
+        except Exception as exc:
+            return self._fail(context, exc)
 
     def execute(self, context):
         global _BAKE_RUNNING
@@ -1084,171 +1506,47 @@ class KOROMO_OT_bake(Operator):
             self.report({"ERROR"}, tr("SHELL object transform is singular"))
             return {"CANCELLED"}
 
-        old_frame = context.scene.frame_current
-        progress = context.window_manager
-        total_frames = settings.frame_end - settings.frame_start + 1
-        progress.progress_begin(0, total_frames)
         _BAKE_RUNNING = True
         settings.bake_in_progress = True
         settings.bake_progress = 0.0
         settings.bake_current_frame = settings.frame_start
-        settings.bake_total_frames = total_frames
+        settings.bake_total_frames = settings.frame_end - settings.frame_start + 1
         settings.bake_progress_text = tr("Preparing solver...")
-        created_bake = False
-        bake_succeeded = False
-
+        self._job = _BakeJob(context, settings, shell, static)
         try:
-            _set_bake_progress(context, settings, 0, total_frames)
-            context.scene.frame_set(settings.frame_start)
-            if _owned_bake(shell):
-                _clear_owned_bake(shell)
+            self._job.prepare(context)
+        except Exception as exc:
+            return self._fail(context, exc)
 
-            shell_vertices, shell_triangles = _shell_mesh(shell)
-            depsgraph = context.evaluated_depsgraph_get()
-            (static_vertices, static_triangles, skipped_static,
-             static_topology) = _filtered_static_mesh(static, depsgraph)
-            seam_pairs = (
-                _prepared_seam_pairs(shell) if settings.seam_enabled else []
-            )
-            if not shell_triangles:
-                raise RuntimeError("SHELL has no triangles")
-            if not static_triangles:
-                raise RuntimeError("STATIC has no triangles")
-            settings.last_prepare_skipped = skipped_static
+        if bpy.app.background:
+            return self._run_synchronous(context)
 
-            library = get_library()
-            desc = library.default_desc()
-            desc.gravity = Vec3(*settings.gravity)
-            desc.substeps = settings.substeps
-            desc.pd_iterations = settings.pd_iterations
-            desc.pcg_iterations = settings.pcg_iterations
-            desc.pcg_relative_tolerance = settings.pcg_tolerance
-            desc.collision_iterations = settings.collision_iterations
-            desc.velocity_damping = settings.velocity_damping
-            desc.thread_count = settings.thread_count
+        self._timer = context.window_manager.event_timer_add(
+            0.01, window=context.window
+        )
+        context.window_manager.modal_handler_add(self)
+        return {"RUNNING_MODAL"}
 
-            material = library.default_material()
-            material.density = settings.density
-            material.stretch_stiffness = settings.stretch_stiffness
-            material.bend_stiffness = settings.bend_stiffness
-            material.thickness = settings.thickness
-            material.friction = settings.friction
-            material.restitution = settings.restitution
-            material.strain_limit = (
-                settings.strain_limit_percent * 0.01
-                if settings.strain_limit_enabled
-                else 0.0
-            )
-            material.strain_limit_stiffness = settings.strain_limit_stiffness
-
-            fps = context.scene.render.fps / context.scene.render.fps_base
-            frame_dt = settings.time_scale / fps
-            world_to_local = shell.matrix_world.inverted_safe()
-
-            with library.create(desc) as solver:
-                solver.set_static_mesh(static_vertices, static_triangles)
-                solver.set_shell_mesh(shell_vertices, shell_triangles, material)
-                solver.set_shell_seams(seam_pairs, settings.seam_stiffness)
-                solver.build()
-
-                basis = shell.shape_key_add(name="Basis", from_mix=False)
-                basis.interpolation = "KEY_LINEAR"
-                keys = shell.data.shape_keys
-                keys[_BAKE_TAG] = 1
-                keys["frame_start"] = settings.frame_start
-                keys["frame_end"] = settings.frame_end
-                created_bake = True
-                _set_bake_progress(
-                    context,
-                    settings,
-                    1,
-                    total_frames,
-                    settings.frame_start,
-                )
-
-                final_stats = None
-                for frame in range(settings.frame_start + 1, settings.frame_end + 1):
-                    completed_before = frame - settings.frame_start
-                    _set_bake_progress(
-                        context,
-                        settings,
-                        completed_before,
-                        total_frames,
-                        frame,
-                    )
-                    context.scene.frame_set(frame)
-                    depsgraph = context.evaluated_depsgraph_get()
-                    animated_static_vertices, topology = _evaluated_static_vertices(
-                        static, depsgraph
-                    )
-                    if topology != static_topology:
-                        raise RuntimeError(
-                            "Animated STATIC topology changed; use deformation-only modifiers"
-                        )
-                    solver.update_static_vertices(animated_static_vertices)
-                    solver.step(frame_dt)
-                    shape = shell.shape_key_add(name=f"KOROMO_{frame:06d}", from_mix=False)
-                    shape.interpolation = "KEY_LINEAR"
-                    shape.data.foreach_set(
-                        "co", _world_to_local_flat(world_to_local, solver.positions())
-                    )
-                    final_stats = solver.stats()
-                    _set_bake_progress(
-                        context,
-                        settings,
-                        completed_before + 1,
-                        total_frames,
-                        frame,
-                    )
-
-                _configure_absolute_shape_keys(
-                    shell, settings.frame_start, settings.frame_end
-                )
-
-            context.scene.frame_set(old_frame)
-            settings.last_status = tr(
-                "Baked {count} frames with {seams} seams and animated BODY; "
-                "cursor restored to frame {frame}",
-                count=total_frames,
-                seams=len(seam_pairs),
-                frame=context.scene.frame_current,
-            )
-            settings.bake_progress = 1.0
-            settings.bake_current_frame = settings.frame_end
-            settings.bake_progress_text = tr(
-                "Completed: {count} frames", count=total_frames
-            )
-            if final_stats is not None:
-                settings.last_contacts = str(final_stats.contact_count)
-                settings.last_residual = f"{final_stats.final_pcg_relative_residual:.3g}"
-                settings.last_strain = tr(
-                    "{percent:.2f}% ({count} projections)",
-                    percent=(final_stats.maximum_principal_stretch - 1.0) * 100.0,
-                    count=final_stats.strain_limit_projection_count,
-                )
-            bake_succeeded = True
-            self.report({"INFO"}, settings.last_status)
+    def modal(self, context, event):
+        if event.type == "ESC":
+            return self._fail(context, None, cancelled=True)
+        if event.type != "TIMER":
+            return {"RUNNING_MODAL"}
+        try:
+            if self._job.process_next_frame(context):
+                return {"RUNNING_MODAL"}
+            self._job.finish_success()
+            message = self._job.settings.last_status
+            self.report({"INFO"}, message)
+            self._release(context)
             return {"FINISHED"}
         except Exception as exc:
-            if created_bake and _owned_bake(shell):
-                _clear_owned_bake(shell)
-            settings.last_status = tr(
-                "Bake failed: {error}", error=tr(str(exc))
-            )
-            settings.bake_progress_text = tr(
-                "Stopped at frame {frame}", frame=settings.bake_current_frame
-            )
-            self.report({"ERROR"}, settings.last_status)
-            return {"CANCELLED"}
-        finally:
-            progress.progress_end()
-            if context.workspace is not None:
-                context.workspace.status_text_set(None)
-            if not bake_succeeded:
-                context.scene.frame_set(old_frame)
-            settings.bake_in_progress = False
-            _BAKE_RUNNING = False
-            _tag_progress_redraw(context)
+            return self._fail(context, exc)
+
+    def cancel(self, context):
+        if self._job is not None:
+            self._job.finish_failure(None, cancelled=True)
+        self._release(context)
 
 
 class KOROMO_PT_solver(Panel):
@@ -1387,6 +1685,10 @@ class KOROMO_PT_solver(Panel):
         solver.label(text="Solver")
         solver.prop(settings, "gravity")
         solver.prop(settings, "substeps")
+        solver.prop(settings, "adaptive_substeps_enabled")
+        adaptive = solver.column()
+        adaptive.enabled = settings.adaptive_substeps_enabled
+        adaptive.prop(settings, "adaptive_max_substeps")
         solver.prop(settings, "pd_iterations")
         solver.prop(settings, "pcg_iterations")
         solver.prop(settings, "pcg_tolerance")
@@ -1407,6 +1709,9 @@ class KOROMO_PT_solver(Panel):
             text=tr("Last PCG residual: {value}", value=settings.last_residual)
         )
         status.label(text=tr("Last max strain: {value}", value=settings.last_strain))
+        status.label(
+            text=tr("Last adaptive sampling: {value}", value=settings.last_adaptive_status)
+        )
 
 
 _CLASSES = (

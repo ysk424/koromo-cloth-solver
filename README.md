@@ -95,9 +95,17 @@ provides one explicit seam vertex pair. Results are written only to absolute
 Shape Keys on the prepared garment copy.
 
 The sidebar follows Blender's interface language setting: `ja_JP` displays the
-included Japanese UI, and other languages fall back to English. During Bake,
-the panel progress bar and Blender status area show the current frame and
-completion percentage.
+included Japanese UI, and other languages fall back to English. During an
+interactive Bake, only the progress bar in the initiating sidebar Screen is
+redrawn. The evaluation frame is restored before each redraw, so other Blender
+windows and 3D views do not display intermediate simulation state.
+
+Adaptive BODY substeps are enabled by default. Koromo compares consecutive
+evaluated BODY meshes and uses the maximum vertex displacement as its motion
+metric. When that displacement is large relative to the garment's smaller
+edge scale, only that frame is sampled at Blender subframes, up to the
+configured maximum effective substep count. Normal frames keep the configured
+base substep count.
 
 Current collision is two-sided cloth-vertex/body-triangle contact. Shell
 self-collision is intentionally out of scope for this workflow; exact CCD and

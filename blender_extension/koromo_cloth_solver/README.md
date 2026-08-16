@@ -15,9 +15,9 @@ writes results as absolute Shape Keys; source objects are not modified.
 5. Choose the bake frames and run **Bake Simulation**.
 
 The sidebar follows Blender's interface language preference and includes
-English and Japanese (`ja_JP`). The **Bake Progress** box and Blender status
-area show the current frame and completion percentage while the synchronous
-bake is running.
+English and Japanese (`ja_JP`). During a Bake, only the **Bake Progress** box
+in the initiating Screen is redrawn. Other windows, 3D views and the shared
+Workspace status text are not updated with intermediate simulation state.
 
 HOU mode reads all parts and exact seam pairs from
 `housei_sewing_plan_json`. It validates the HOU fingerprints, creates one
@@ -40,7 +40,12 @@ Koromo compares the previous and current BODY geometry within every substep.
 A moving BODY surface therefore pushes cloth on the side where it started,
 even when the cloth vertex itself barely moves. Substeps remain an accuracy
 setting and are no longer the only protection against animated-collider
-tunnelling.
+tunnelling. **Adaptive BODY Substeps** additionally detects the maximum BODY
+vertex displacement between consecutive frames. A large-motion frame is
+evaluated at Blender subframes and receives extra solver steps up to
+**Maximum Adaptive Substeps**; ordinary frames retain the base Substeps value.
+Simulation positions are buffered temporarily and converted to absolute Shape
+Keys only after every frame succeeds.
 
 The strain limit bounds both tensile and compressive principal strain. At the
 default five percent, projected triangle stretches stay between 0.95 and 1.05

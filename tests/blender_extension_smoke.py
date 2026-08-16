@@ -38,6 +38,10 @@ def main():
     assert (stage / "THIRD_PARTY_NOTICES.md").is_file()
     sys.path.insert(0, str(stage.parent))
     import koromo_cloth_solver
+    from koromo_cloth_solver.addon import (
+        _adaptive_motion_threshold,
+        _adaptive_step_calls,
+    )
     from koromo_cloth_solver.i18n import tr
     from koromo_cloth_solver.native import get_library
 
@@ -46,6 +50,15 @@ def main():
         assert bpy.types.KOROMO_PT_solver.bl_label == "Koromo"
         assert bpy.types.KOROMO_PT_solver.bl_category == "Koromo"
         assert get_library().openmp_enabled
+        assert math.isclose(
+            _adaptive_motion_threshold(
+                [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)],
+                [(0, 1, 2), (0, 2, 3)],
+            ),
+            0.5,
+        )
+        assert _adaptive_step_calls(0.483612, 0.006333, 6, 128) == (13, False)
+        assert _adaptive_step_calls(1.0, 0.001, 6, 128) == (21, True)
         preferences = bpy.context.preferences.view
         old_language = preferences.language
         old_translate_interface = preferences.use_translate_interface
@@ -136,6 +149,8 @@ def main():
 
         settings = bpy.context.scene.koromo_settings
         assert settings.substeps == 6
+        assert settings.adaptive_substeps_enabled
+        assert settings.adaptive_max_substeps == 128
         assert settings.pd_iterations == 10
         assert settings.pcg_iterations == 120
         assert settings.seam_stiffness == 1000000.0
@@ -234,6 +249,7 @@ def main():
         assert settings.bake_current_frame == 24
         assert settings.bake_total_frames == 24
         assert "24" in settings.bake_progress_text
+        assert settings.last_adaptive_status.startswith("0 frames; peak 4 substeps")
         bpy.context.scene.frame_set(24)
         animated_static_z = prepared_static.matrix_world.translation.z
         assert abs(animated_static_z - 0.2) < 1.0e-6, animated_static_z
@@ -253,6 +269,42 @@ def main():
         assert settings.prepared_static_object is None
         assert bpy.data.collections.get(prepared_collection_name) is None
         assert not shell.hide_get()
+
+        # Adaptive motion: a far-away collider jumps by 0.5 m. It cannot touch
+        # this 0.1 m cloth, so this isolates subframe scheduling from contact.
+        adaptive_static = create_mesh_object(
+            "KOROMO_Adaptive_STATIC",
+            [(10, 0, 0), (11, 0, 0), (10, 1, 0)],
+            [(0, 1, 2)],
+        )
+        adaptive_shell = create_mesh_object(
+            "KOROMO_Adaptive_SHELL",
+            [(0, 0, 1), (0.1, 0, 1), (0.1, 0.1, 1), (0, 0.1, 1)],
+            [(0, 1, 2), (0, 2, 3)],
+        )
+        adaptive_static.location.x = 0.0
+        adaptive_static.keyframe_insert(data_path="location", index=0, frame=1)
+        adaptive_static.location.x = 0.5
+        adaptive_static.keyframe_insert(data_path="location", index=0, frame=2)
+        settings.source_mode = "OBJECT"
+        settings.shell_object = adaptive_shell
+        settings.static_object = adaptive_static
+        settings.static_crop_enabled = False
+        settings.frame_start = 1
+        settings.frame_end = 2
+        settings.substeps = 2
+        settings.adaptive_substeps_enabled = True
+        settings.adaptive_max_substeps = 128
+        settings.seam_enabled = False
+        assert bpy.ops.koromo.prepare() == {"FINISHED"}
+        adaptive_result = settings.prepared_shell_object
+        assert bpy.ops.koromo.bake() == {"FINISHED"}
+        assert adaptive_result.data.shape_keys is not None
+        assert len(adaptive_result.data.shape_keys.key_blocks) == 2
+        assert settings.last_adaptive_status.startswith(
+            "1 frames; peak 10 substeps"
+        ), settings.last_adaptive_status
+        assert bpy.ops.koromo.clear_prepared() == {"FINISHED"}
 
         # HOU mode: parts remain read-only; their exact plan pairs are expanded
         # into one solver-owned shell without proximity reconstruction.
@@ -325,6 +377,7 @@ def main():
         settings.hou_collection = hou_collection
         settings.frame_end = 4
         settings.static_object = static
+        settings.seam_enabled = True
         assert bpy.ops.koromo.prepare() == {"FINISHED"}
         hou_shell = settings.prepared_shell_object
         assert hou_shell is not None
