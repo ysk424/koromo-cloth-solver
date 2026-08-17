@@ -10,6 +10,16 @@ int main(void) {
         fputs("C ABI metadata check failed\n", stderr);
         return 1;
     }
+    if (!kcsIsCudaEnabled() &&
+        (kcsIsCudaAvailable() || kcsGetCudaDeviceName()[0] != '\0')) {
+        fputs("C ABI CUDA metadata check failed\n", stderr);
+        return 1;
+    }
+    if (kcsIsCudaEnabled() &&
+        (!kcsIsCudaAvailable() || kcsGetCudaDeviceName()[0] == '\0')) {
+        fputs("CUDA build has no available device\n", stderr);
+        return 1;
+    }
     KcsShellMaterial material;
     kcsDefaultShellMaterial(&material);
     if (material.struct_size != sizeof(material) || material.strain_limit != 0.0f ||
@@ -20,6 +30,12 @@ int main(void) {
     KcsSolver *solver = kcsCreate(&desc);
     if (!solver) {
         fprintf(stderr, "C ABI create failed: %s\n", kcsGetLastError(NULL));
+        return 1;
+    }
+    if (kcsSetCudaFallbackAllowed(solver, 1) != KCS_OK ||
+        kcsGetExecutionBackend(solver) != KCS_EXECUTION_CPU) {
+        fputs("C ABI backend policy check failed\n", stderr);
+        kcsDestroy(solver);
         return 1;
     }
     if (kcsSetShellSeams(solver, NULL, 0) != KCS_OK) {

@@ -1,5 +1,9 @@
 #include "solver.hpp"
 
+#ifdef KCS_HAS_CUDA
+#include "cuda_backend.hpp"
+#endif
+
 #include <algorithm>
 #include <cmath>
 #include <climits>
@@ -62,6 +66,49 @@ int32_t kcsIsOpenMpEnabled(void) {
 #else
     return 0;
 #endif
+}
+
+int32_t kcsIsCudaEnabled(void) {
+#ifdef KCS_HAS_CUDA
+    return 1;
+#else
+    return 0;
+#endif
+}
+
+int32_t kcsIsCudaAvailable(void) {
+#ifdef KCS_HAS_CUDA
+    return kcs::CudaBackend::available() ? 1 : 0;
+#else
+    return 0;
+#endif
+}
+
+const char *kcsGetCudaDeviceName(void) {
+#ifdef KCS_HAS_CUDA
+    thread_local std::string device_name;
+    device_name.clear();
+    kcs::CudaBackend::available(&device_name);
+    return device_name.c_str();
+#else
+    return "";
+#endif
+}
+
+KcsExecutionBackend kcsGetExecutionBackend(const KcsSolver *solver) {
+    return solver && solver->impl.cuda_active() ? KCS_EXECUTION_CUDA
+                                                 : KCS_EXECUTION_CPU;
+}
+
+KcsResult kcsSetCudaFallbackAllowed(KcsSolver *solver, int32_t allowed) {
+    if (!solver) {
+        return fail(nullptr, KCS_ERROR_INVALID_ARGUMENT, "solver is null");
+    }
+    if (!solver->impl.set_cuda_fallback_allowed(allowed != 0)) {
+        return fail(solver, KCS_ERROR_INVALID_STATE,
+                    "CUDA fallback policy must be set before kcsBuild");
+    }
+    return KCS_OK;
 }
 
 void kcsDefaultSolverDesc(KcsSolverDesc *desc) {

@@ -752,6 +752,16 @@ class KOROMO_Settings(PropertyGroup):
     frame_start: IntProperty(name="Start", default=1, min=-1048574, max=1048574)
     frame_end: IntProperty(name="End", default=250, min=-1048574, max=1048574)
     time_scale: FloatProperty(name="Time Scale", default=1.0, min=0.001, max=100.0)
+    backend: EnumProperty(
+        name="Compute Backend",
+        description="Auto uses CUDA for qualified large meshes and safely recomputes on CPU when CUDA is unavailable or PCG does not converge",
+        items=(
+            ("AUTO", "Auto", "Use qualified CUDA execution with safe CPU/OpenMP fallback"),
+            ("CPU", "CPU", "Always use the CPU/OpenMP solver"),
+            ("CUDA", "CUDA", "Require CUDA and disable automatic CPU recomputation"),
+        ),
+        default="AUTO",
+    )
     gravity: FloatVectorProperty(
         name="Gravity",
         default=(0.0, 0.0, -9.81),
@@ -864,6 +874,7 @@ class KOROMO_Settings(PropertyGroup):
     last_contacts: StringProperty(name="Contacts", default="-")
     last_residual: StringProperty(name="PCG Residual", default="-")
     last_strain: StringProperty(name="Maximum Principal Stretch", default="-")
+    last_backend: StringProperty(default="-", options={"HIDDEN"})
     last_adaptive_status: StringProperty(default="-", options={"HIDDEN"})
     bake_in_progress: BoolProperty(default=False, options={"HIDDEN"})
     bake_progress: FloatProperty(
@@ -1068,6 +1079,7 @@ class KOROMO_OT_prepare(Operator):
             settings.last_contacts = "-"
             settings.last_residual = "-"
             settings.last_strain = "-"
+            settings.last_backend = "-"
             settings.last_adaptive_status = "-"
             _reset_bake_progress(settings)
 
@@ -1125,6 +1137,7 @@ class KOROMO_OT_clear_prepared(Operator):
         settings.last_contacts = "-"
         settings.last_residual = "-"
         settings.last_strain = "-"
+        settings.last_backend = "-"
         settings.last_adaptive_status = "-"
         _reset_bake_progress(settings)
         self.report({"INFO"}, settings.last_status)
@@ -1225,7 +1238,7 @@ class _BakeJob:
             raise RuntimeError("STATIC has no triangles")
         self.settings.last_prepare_skipped = skipped_static
 
-        library = get_library()
+        library = get_library(self.settings.backend)
         desc = library.default_desc()
         desc.gravity = Vec3(*self.settings.gravity)
         desc.substeps = self.settings.substeps
@@ -1370,6 +1383,7 @@ class _BakeJob:
 
     def finish_success(self):
         self.materialize_bake()
+        self.settings.last_backend = self.solver.active_backend
         self.settings.last_status = tr(
             "Baked {count} frames with {seams} seams and animated BODY; "
             "cursor restored to frame {frame}",
@@ -1438,7 +1452,7 @@ class _BakeJob:
 class KOROMO_OT_bake(Operator):
     bl_idname = "koromo.bake"
     bl_label = "Bake Simulation"
-    bl_description = "Run the OpenMP solver and bake absolute Shape Keys"
+    bl_description = "Run the selected solver backend and bake absolute Shape Keys"
 
     _job = None
     _timer = None
@@ -1562,13 +1576,19 @@ class KOROMO_PT_solver(Panel):
         settings = context.scene.koromo_settings
 
         try:
-            library = get_library()
+            library = get_library(settings.backend)
             icon = "CHECKMARK" if library.openmp_enabled else "ERROR"
-            text = tr(
-                "DLL ready - OpenMP"
-                if library.openmp_enabled
-                else "DLL has no OpenMP"
-            )
+            if library.active_backend == "CUDA":
+                text = tr(
+                    "Backend: CUDA ({device})",
+                    device=library.cuda_device_name,
+                )
+            else:
+                text = tr(
+                    "Backend: CPU/OpenMP"
+                    if library.openmp_enabled
+                    else "DLL has no OpenMP"
+                )
         except NativeSolverError as exc:
             icon = "ERROR"
             text = tr(str(exc))
@@ -1683,6 +1703,7 @@ class KOROMO_PT_solver(Panel):
 
         solver = layout.box()
         solver.label(text="Solver")
+        solver.prop(settings, "backend")
         solver.prop(settings, "gravity")
         solver.prop(settings, "substeps")
         solver.prop(settings, "adaptive_substeps_enabled")
@@ -1704,6 +1725,9 @@ class KOROMO_PT_solver(Panel):
 
         status = layout.box()
         status.label(text=tr(settings.last_status), icon="INFO")
+        status.label(
+            text=tr("Last backend: {value}", value=settings.last_backend)
+        )
         status.label(text=tr("Last contacts: {value}", value=settings.last_contacts))
         status.label(
             text=tr("Last PCG residual: {value}", value=settings.last_residual)

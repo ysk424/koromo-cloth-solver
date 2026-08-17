@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import math
 import sys
@@ -28,28 +29,35 @@ def main():
 
     stage = Path(options.extension_stage).resolve()
     manifest = (stage / "blender_manifest.toml").read_text(encoding="utf-8")
-    assert 'id = "koromo_cloth_solver"' in manifest
+    assert f'id = "{stage.name}"' in manifest
     assert 'version = "0.6.0"' in manifest
-    assert 'name = "Koromo"' in manifest
+    expected_name = (
+        "Koromo CUDA Experimental"
+        if stage.name == "koromo_cloth_solver_cuda"
+        else "Koromo"
+    )
+    assert f'name = "{expected_name}"' in manifest
     assert 'license = ["SPDX:GPL-3.0-or-later"]' in manifest
     assert (stage / "LICENSE").read_text(encoding="utf-8").startswith(
         "Koromo\nCopyright (C) 2026 ysk424"
     )
     assert (stage / "THIRD_PARTY_NOTICES.md").is_file()
     sys.path.insert(0, str(stage.parent))
-    import koromo_cloth_solver
-    from koromo_cloth_solver.addon import (
-        _adaptive_motion_threshold,
-        _adaptive_step_calls,
-    )
-    from koromo_cloth_solver.i18n import tr
-    from koromo_cloth_solver.native import get_library
+    extension_module = importlib.import_module(stage.name)
+    addon_module = importlib.import_module(f"{stage.name}.addon")
+    i18n_module = importlib.import_module(f"{stage.name}.i18n")
+    native_module = importlib.import_module(f"{stage.name}.native")
+    _adaptive_motion_threshold = addon_module._adaptive_motion_threshold
+    _adaptive_step_calls = addon_module._adaptive_step_calls
+    tr = i18n_module.tr
+    get_library = native_module.get_library
 
-    koromo_cloth_solver.register()
+    extension_module.register()
     try:
         assert bpy.types.KOROMO_PT_solver.bl_label == "Koromo"
         assert bpy.types.KOROMO_PT_solver.bl_category == "Koromo"
         assert get_library().openmp_enabled
+        assert get_library().active_backend in {"CPU", "CUDA"}
         assert math.isclose(
             _adaptive_motion_threshold(
                 [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)],
@@ -222,6 +230,8 @@ def main():
 
         bpy.context.scene.frame_set(7)
         assert bpy.ops.koromo.bake() == {"FINISHED"}
+        smoke_solver_backend = settings.last_backend
+        assert smoke_solver_backend == "CPU"
         assert bpy.context.scene.frame_current == 7
         keys = prepared_shell.data.shape_keys
         assert keys is not None
@@ -394,14 +404,16 @@ def main():
         assert all(not part.hide_get() for part in hou_parts)
         print(
             "Blender Extension preparation smoke test passed: "
-            f"OpenMP={get_library().openmp_enabled}, skipped_static=1, "
+            f"OpenMP={get_library().openmp_enabled}, "
+            f"library_backend={get_library().active_backend}, "
+            f"solver_backend={smoke_solver_backend}, skipped_static=1, "
             f"animated_static_delta={animated_static_z - 0.1:.3f}, "
             f"static_crop={settings.last_static_crop_polygons}, "
             f"seam_remaining_ratio={maximum_seam_remaining_ratio:.6f}, "
             f"final_min_z={final_height:.6f}, hou_pairs=2"
         )
     finally:
-        koromo_cloth_solver.unregister()
+        extension_module.unregister()
 
 
 if __name__ == "__main__":

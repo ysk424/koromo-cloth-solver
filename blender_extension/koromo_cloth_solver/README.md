@@ -4,6 +4,12 @@ This Windows x64 Blender Extension bakes a stitched continuum cloth shell
 against a topology-stable animated body collider. The bundled CPU/OpenMP DLL
 writes results as absolute Shape Keys; source objects are not modified.
 
+CUDA packages also include a separate GPU DLL and expose Auto, CPU and CUDA
+in the Solver panel. Auto uses CUDA only for qualified large meshes. If CUDA
+PCG reaches its iteration cap without converging, the GPU frame is discarded
+and recomputed by CPU/OpenMP. Explicit CUDA disables this safety fallback and
+is intended for comparison.
+
 1. Install the generated ZIP using **Edit > Preferences > Extensions > Install
    from Disk**.
 2. Open **3D View > Sidebar > Koromo**. With Blender's interface language set

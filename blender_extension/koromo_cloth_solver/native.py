@@ -82,14 +82,15 @@ class StepStats(ctypes.Structure):
     ]
 
 
-def bundled_library_path() -> Path:
-    """Return the platform-specific library path inside the Extension."""
+def bundled_library_path(backend: str = "CPU") -> Path:
+    """Return the platform-specific CPU or CUDA library path."""
+    suffix = "_cuda" if backend.upper() == "CUDA" else ""
     if sys.platform == "win32":
-        filename = "koromo_cloth_solver.dll"
+        filename = f"koromo_cloth_solver{suffix}.dll"
     elif sys.platform == "darwin":
-        filename = "libkoromo_cloth_solver.dylib"
+        filename = f"libkoromo_cloth_solver{suffix}.dylib"
     else:
-        filename = "libkoromo_cloth_solver.so"
+        filename = f"libkoromo_cloth_solver{suffix}.so"
     return Path(__file__).resolve().parent / "bin" / filename
 
 
@@ -115,11 +116,43 @@ def _as_seam_array(values: Iterable[Sequence[int]], stiffness: float):
 class SolverLibrary:
     """Loaded DLL and fully declared C function table."""
 
-    def __init__(self, path: os.PathLike[str] | str | None = None):
-        self.path = Path(path) if path is not None else bundled_library_path()
+    def __init__(
+        self,
+        path: os.PathLike[str] | str | None = None,
+        *,
+        backend: str = "AUTO",
+    ):
+        requested = backend.upper()
+        if requested not in {"AUTO", "CPU", "CUDA"}:
+            raise NativeSolverError(f"Unknown solver backend: {backend}")
+        self.requested_backend = requested
+        self.fallback_reason = ""
+        if path is not None:
+            self._load(Path(path))
+            self._validate_loaded_library(
+                require_cuda=(requested == "CUDA" or
+                              (requested == "AUTO" and self.cuda_enabled))
+            )
+            return
+
+        if requested in {"AUTO", "CUDA"}:
+            cuda_path = bundled_library_path("CUDA")
+            try:
+                self._load(cuda_path)
+                self._validate_loaded_library(require_cuda=True)
+                return
+            except NativeSolverError as exc:
+                if requested == "CUDA":
+                    raise
+                self.fallback_reason = str(exc)
+
+        self._load(bundled_library_path("CPU"))
+        self._validate_loaded_library(require_cuda=False)
+
+    def _load(self, path: Path) -> None:
+        self.path = path
         if not self.path.is_file():
             raise NativeSolverError(f"Solver library was not found: {self.path}")
-
         dll_directory = None
         try:
             if sys.platform == "win32" and hasattr(os, "add_dll_directory"):
@@ -130,13 +163,23 @@ class SolverLibrary:
         finally:
             if dll_directory is not None:
                 dll_directory.close()
-
         self._declare_functions()
+
+    def _validate_loaded_library(self, *, require_cuda: bool) -> None:
         abi = int(self.api.kcsGetAbiVersion())
         if abi != KCS_ABI_VERSION:
             raise NativeSolverError(
                 f"Solver ABI mismatch: Extension expects {KCS_ABI_VERSION}, DLL reports {abi}"
             )
+        if require_cuda:
+            if not self.cuda_enabled:
+                raise NativeSolverError(f"Solver DLL has no CUDA backend: {self.path}")
+            if not self.cuda_available:
+                raise NativeSolverError(
+                    f"CUDA is unavailable for {self.path.name}"
+                )
+        elif self.cuda_enabled:
+            raise NativeSolverError(f"Expected CPU solver DLL, got CUDA: {self.path}")
 
     def _declare_functions(self) -> None:
         api = self.api
@@ -144,6 +187,16 @@ class SolverLibrary:
         api.kcsGetAbiVersion.restype = ctypes.c_uint32
         api.kcsIsOpenMpEnabled.argtypes = []
         api.kcsIsOpenMpEnabled.restype = ctypes.c_int32
+        api.kcsIsCudaEnabled.argtypes = []
+        api.kcsIsCudaEnabled.restype = ctypes.c_int32
+        api.kcsIsCudaAvailable.argtypes = []
+        api.kcsIsCudaAvailable.restype = ctypes.c_int32
+        api.kcsGetCudaDeviceName.argtypes = []
+        api.kcsGetCudaDeviceName.restype = ctypes.c_char_p
+        api.kcsGetExecutionBackend.argtypes = [ctypes.c_void_p]
+        api.kcsGetExecutionBackend.restype = ctypes.c_int32
+        api.kcsSetCudaFallbackAllowed.argtypes = [ctypes.c_void_p, ctypes.c_int32]
+        api.kcsSetCudaFallbackAllowed.restype = ctypes.c_int32
         api.kcsDefaultSolverDesc.argtypes = [ctypes.POINTER(SolverDesc)]
         api.kcsDefaultSolverDesc.restype = None
         api.kcsDefaultShellMaterial.argtypes = [ctypes.POINTER(ShellMaterial)]
@@ -202,6 +255,23 @@ class SolverLibrary:
     def openmp_enabled(self) -> bool:
         return bool(self.api.kcsIsOpenMpEnabled())
 
+    @property
+    def cuda_enabled(self) -> bool:
+        return bool(self.api.kcsIsCudaEnabled())
+
+    @property
+    def cuda_available(self) -> bool:
+        return bool(self.api.kcsIsCudaAvailable())
+
+    @property
+    def cuda_device_name(self) -> str:
+        raw = self.api.kcsGetCudaDeviceName()
+        return raw.decode("utf-8", errors="replace") if raw else ""
+
+    @property
+    def active_backend(self) -> str:
+        return "CUDA" if self.cuda_enabled else "CPU"
+
     def default_desc(self) -> SolverDesc:
         value = SolverDesc()
         self.api.kcsDefaultSolverDesc(ctypes.byref(value))
@@ -224,6 +294,13 @@ class Solver:
         self.handle = library.api.kcsCreate(ctypes.byref(desc))
         if not self.handle:
             raise NativeSolverError("Could not create the native solver")
+        self._check(
+            self.library.api.kcsSetCudaFallbackAllowed(
+                self.handle,
+                1 if self.library.requested_backend == "AUTO" else 0,
+            ),
+            "Setting CUDA fallback policy",
+        )
 
     def close(self) -> None:
         if self.handle:
@@ -316,12 +393,17 @@ class Solver:
         )
         return value
 
+    @property
+    def active_backend(self) -> str:
+        value = int(self.library.api.kcsGetExecutionBackend(self.handle))
+        return "CUDA" if value == 2 else "CPU"
 
-_library: SolverLibrary | None = None
+
+_libraries: dict[str, SolverLibrary] = {}
 
 
-def get_library() -> SolverLibrary:
-    global _library
-    if _library is None:
-        _library = SolverLibrary()
-    return _library
+def get_library(backend: str = "AUTO") -> SolverLibrary:
+    key = backend.upper()
+    if key not in _libraries:
+        _libraries[key] = SolverLibrary(backend=key)
+    return _libraries[key]

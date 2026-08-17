@@ -52,6 +52,11 @@ typedef enum KcsResult {
     KCS_ERROR_INTERNAL = 6
 } KcsResult;
 
+typedef enum KcsExecutionBackend {
+    KCS_EXECUTION_CPU = 1,
+    KCS_EXECUTION_CUDA = 2
+} KcsExecutionBackend;
+
 /* Solver-wide settings. Set struct_size with kcsDefaultSolverDesc(). */
 typedef struct KcsSolverDesc {
     uint32_t struct_size;
@@ -94,6 +99,18 @@ typedef struct KcsStepStats {
 
 KCS_API uint32_t kcsGetAbiVersion(void);
 KCS_API int32_t kcsIsOpenMpEnabled(void);
+/* The CPU DLL returns zero for both CUDA queries. The optional CUDA DLL
+ * returns one from kcsIsCudaEnabled() and reports whether a usable NVIDIA
+ * device is present at runtime from kcsIsCudaAvailable(). */
+KCS_API int32_t kcsIsCudaEnabled(void);
+KCS_API int32_t kcsIsCudaAvailable(void);
+KCS_API const char *kcsGetCudaDeviceName(void);
+KCS_API KcsExecutionBackend kcsGetExecutionBackend(const KcsSolver *solver);
+/* AUTO clients enable this before kcsBuild(). If a mesh is too small for GPU
+ * launch overhead or CUDA PCG does not converge within the configured cap,
+ * the untouched frame is recomputed by the CPU backend and remains there. */
+KCS_API KcsResult kcsSetCudaFallbackAllowed(KcsSolver *solver,
+                                            int32_t allowed);
 KCS_API void kcsDefaultSolverDesc(KcsSolverDesc *desc);
 KCS_API void kcsDefaultShellMaterial(KcsShellMaterial *material);
 

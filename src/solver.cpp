@@ -1,5 +1,9 @@
 #include "solver.hpp"
 
+#ifdef KCS_HAS_CUDA
+#include "cuda_backend.hpp"
+#endif
+
 #include <omp.h>
 
 #include <algorithm>
@@ -461,6 +465,8 @@ Solver::Solver(const KcsSolverDesc &desc) : desc_(desc) {
     threads_ = std::max(1, threads_);
 }
 
+Solver::~Solver() = default;
+
 bool Solver::set_static_mesh(const KcsVec3 *vertices, uint32_t vertex_count,
                              const KcsTriangle *triangles,
                              uint32_t triangle_count) {
@@ -615,6 +621,13 @@ bool Solver::build() {
     static_motion_radius_ = 0.0f;
     static_update_pending_ = false;
     built_ = true;
+#ifdef KCS_HAS_CUDA
+    cuda_backend_ = CudaBackend::create(*this, error_);
+    if (!cuda_backend_) {
+        built_ = false;
+        return false;
+    }
+#endif
     return true;
 }
 
@@ -827,24 +840,30 @@ float Solver::project_strain_constraints(const std::vector<Vec3> &positions,
     const int64_t count = static_cast<int64_t>(strain_constraints_.size());
     uint64_t limited = 0u;
     float maximum = 1.0f;
-#pragma omp parallel for schedule(static) reduction(+ : limited) reduction(max : maximum) num_threads(threads_) if(count > kParallelThreshold)
-    for (int64_t ci = 0; ci < count; ++ci) {
-        const StrainConstraint &constraint = strain_constraints_[ci];
-        Vec3 f[2]{};
-        for (int local = 0; local < 3; ++local) {
-            const Vec3 x = positions[constraint.vertex[local]];
-            f[0] += x * constraint.gradient[local][0];
-            f[1] += x * constraint.gradient[local][1];
+#pragma omp parallel num_threads(threads_) if(count > kParallelThreshold) reduction(+ : limited)
+    {
+        float thread_maximum = 1.0f;
+#pragma omp for schedule(static)
+        for (int64_t ci = 0; ci < count; ++ci) {
+            const StrainConstraint &constraint = strain_constraints_[ci];
+            Vec3 f[2]{};
+            for (int local = 0; local < 3; ++local) {
+                const Vec3 x = positions[constraint.vertex[local]];
+                f[0] += x * constraint.gradient[local][0];
+                f[1] += x * constraint.gradient[local][1];
+            }
+            f[0] += strain_dual_[ci].column[0];
+            f[1] += strain_dual_[ci].column[1];
+            bool was_limited = false;
+            const float stretch = project_triangle_strain(
+                f[0], f[1], constraint.minimum_stretch,
+                constraint.maximum_stretch, strain_projection_[ci].column[0],
+                strain_projection_[ci].column[1], was_limited);
+            thread_maximum = std::max(thread_maximum, stretch);
+            if (was_limited) ++limited;
         }
-        f[0] += strain_dual_[ci].column[0];
-        f[1] += strain_dual_[ci].column[1];
-        bool was_limited = false;
-        const float stretch = project_triangle_strain(
-            f[0], f[1], constraint.minimum_stretch,
-            constraint.maximum_stretch, strain_projection_[ci].column[0],
-            strain_projection_[ci].column[1], was_limited);
-        maximum = std::max(maximum, stretch);
-        if (was_limited) ++limited;
+#pragma omp critical(kcs_strain_maximum)
+        maximum = std::max(maximum, thread_maximum);
     }
     if (limited_count) *limited_count = limited;
     return maximum;
@@ -871,23 +890,29 @@ void Solver::update_strain_duals(const std::vector<Vec3> &positions) {
 float Solver::maximum_principal_stretch(const std::vector<Vec3> &positions) const {
     const int64_t count = static_cast<int64_t>(strain_constraints_.size());
     float maximum = 1.0f;
-#pragma omp parallel for schedule(static) reduction(max : maximum) num_threads(threads_) if(count > kParallelThreshold)
-    for (int64_t ci = 0; ci < count; ++ci) {
-        const StrainConstraint &constraint = strain_constraints_[ci];
-        Vec3 f0{};
-        Vec3 f1{};
-        for (int local = 0; local < 3; ++local) {
-            const Vec3 x = positions[constraint.vertex[local]];
-            f0 += x * constraint.gradient[local][0];
-            f1 += x * constraint.gradient[local][1];
+#pragma omp parallel num_threads(threads_) if(count > kParallelThreshold)
+    {
+        float thread_maximum = 1.0f;
+#pragma omp for schedule(static)
+        for (int64_t ci = 0; ci < count; ++ci) {
+            const StrainConstraint &constraint = strain_constraints_[ci];
+            Vec3 f0{};
+            Vec3 f1{};
+            for (int local = 0; local < 3; ++local) {
+                const Vec3 x = positions[constraint.vertex[local]];
+                f0 += x * constraint.gradient[local][0];
+                f1 += x * constraint.gradient[local][1];
+            }
+            const float c00 = dot(f0, f0);
+            const float c01 = dot(f0, f1);
+            const float c11 = dot(f1, f1);
+            const float discriminant = std::sqrt(std::max(
+                (c00 - c11) * (c00 - c11) + 4.0f * c01 * c01, 0.0f));
+            thread_maximum = std::max(thread_maximum,
+                std::sqrt(std::max(0.5f * (c00 + c11 + discriminant), 0.0f)));
         }
-        const float c00 = dot(f0, f0);
-        const float c01 = dot(f0, f1);
-        const float c11 = dot(f1, f1);
-        const float discriminant = std::sqrt(std::max(
-            (c00 - c11) * (c00 - c11) + 4.0f * c01 * c01, 0.0f));
-        maximum = std::max(maximum,
-            std::sqrt(std::max(0.5f * (c00 + c11 + discriminant), 0.0f)));
+#pragma omp critical(kcs_strain_maximum)
+        maximum = std::max(maximum, thread_maximum);
     }
     return maximum;
 }
@@ -1144,6 +1169,15 @@ uint64_t Solver::resolve_collisions(const std::vector<Vec3> &from,
 }
 
 bool Solver::step(float frame_dt) {
+#ifdef KCS_HAS_CUDA
+    if (cuda_backend_) {
+        if (cuda_backend_->step(*this, frame_dt)) return true;
+        if (!cuda_backend_->fallback_requested()) return false;
+        cuda_backend_.reset();
+        error_.clear();
+        return step(frame_dt);
+    }
+#endif
     error_.clear();
     stats_ = {};
     stats_.substeps = desc_.substeps;

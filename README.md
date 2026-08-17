@@ -20,6 +20,39 @@ ctest --test-dir build --output-on-failure
 
 Output: `build/koromo_cloth_solver.dll`.
 
+### Optional CUDA/Auto build
+
+The experimental Windows CUDA build keeps the CPU/OpenMP DLL and adds a
+separate `koromo_cloth_solver_cuda.dll`. Configure it with the Visual Studio
+generator because NVIDIA `nvcc` does not use the MinGW toolchain:
+
+```powershell
+cmake -S . -B build-cuda -G "Visual Studio 17 2022" -A x64 `
+  -DKOROMO_CUDA=ON `
+  -DKOROMO_BLENDER_EXECUTABLE=C:/path/to/blender.exe
+cmake --build build-cuda --config Release --parallel
+ctest --test-dir build-cuda -C Release --output-on-failure
+cmake --build build-cuda --config Release --target blender-extension-test
+```
+
+The Blender setting exposes `Auto`, `CPU`, and `CUDA`. `Auto` loads CUDA only
+when the optional DLL and a usable NVIDIA device are present. It runs meshes
+below 8,192 vertices on CPU. If CUDA PCG does not meet the configured tolerance
+within its iteration cap, the uncommitted GPU frame is discarded and recomputed
+by the original CPU solver; all later frames for that solver stay on CPU.
+Explicit `CUDA` disables these two automatic fallbacks for benchmarking.
+The CUDA package is emitted as
+`build-cuda/packages/koromo_cloth_solver_cuda-0.6.0-windows-x64.zip` with the
+separate Extension ID `koromo_cloth_solver_cuda`, so installing it does not
+replace the stable Extension. Do not enable both variants simultaneously
+because they intentionally expose the same Blender operators and scene data.
+
+Simulation arrays, constraints, BVH data, and PCG work vectors remain in VRAM
+between frames. Auto therefore transfers BODY input and final cloth output at
+frame boundaries, but not complete arrays around every GPU kernel. See
+[`docs/CUDA_EXPERIMENT_JA.md`](docs/CUDA_EXPERIMENT_JA.md) for the current
+validation and limitations.
+
 To build the installable Blender Extension ZIP with the ZIP-distribution
 Blender 5.2 executable:
 

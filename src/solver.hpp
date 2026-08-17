@@ -4,10 +4,13 @@
 #include "koromo_cloth_solver.h"
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
 namespace kcs {
+
+class CudaBackend;
 
 struct Vec3 {
     float x = 0.0f;
@@ -78,6 +81,7 @@ public:
     SegmentHit first_segment_hit(Vec3 from, Vec3 to, float padding) const;
 
 private:
+    friend class CudaBackend;
     uint32_t build_node(uint32_t first, uint32_t count);
 
     std::vector<Vec3> vertices_;
@@ -130,6 +134,7 @@ struct StepStats {
 class Solver {
 public:
     explicit Solver(const KcsSolverDesc &desc);
+    ~Solver();
 
     bool set_static_mesh(const KcsVec3 *vertices, uint32_t vertex_count,
                          const KcsTriangle *triangles, uint32_t triangle_count);
@@ -151,9 +156,22 @@ public:
     const std::string &error() const { return error_; }
     const StepStats &stats() const { return stats_; }
     bool built() const { return built_; }
+    bool cuda_active() const {
+#ifdef KCS_HAS_CUDA
+        return cuda_backend_ != nullptr;
+#else
+        return false;
+#endif
+    }
+    bool set_cuda_fallback_allowed(bool allowed) {
+        if (built_) return false;
+        cuda_fallback_allowed_ = allowed;
+        return true;
+    }
     void set_error(std::string message) { error_ = std::move(message); }
 
 private:
+    friend class CudaBackend;
     bool build_shell_constraints();
     bool build_strain_constraints();
     float project_strain_constraints(const std::vector<Vec3> &positions,
@@ -218,9 +236,13 @@ private:
     float contact_weight_ = 0.0f;
     float static_motion_radius_ = 0.0f;
     bool static_update_pending_ = false;
+    bool cuda_fallback_allowed_ = false;
 
     StepStats stats_{};
     std::string error_;
+#ifdef KCS_HAS_CUDA
+    std::unique_ptr<CudaBackend> cuda_backend_;
+#endif
 };
 
 } // namespace kcs
