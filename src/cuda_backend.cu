@@ -396,22 +396,23 @@ __global__ void refit_triangles_kernel(const Vec3 *vertices,
 }
 
 __global__ void refit_nodes_kernel(const StaticTriangle *triangles,
-                                    const uint32_t *order, BvhNode *nodes,
-                                    size_t node_count) {
-    if (blockIdx.x != 0 || threadIdx.x != 0) return;
-    for (size_t reverse = node_count; reverse-- > 0u;) {
-        BvhNode &node = nodes[reverse];
-        Aabb bounds = empty_aabb_device();
-        if (node.count != 0u) {
-            for (uint32_t i = node.first; i < node.first + node.count; ++i) {
-                grow_device(bounds, triangles[order[i]].bounds);
-            }
-        } else {
-            grow_device(bounds, nodes[node.left].bounds);
-            grow_device(bounds, nodes[node.right].bounds);
+                                    const uint32_t *order,
+                                    const uint32_t *level_nodes,
+                                    size_t level_node_count, BvhNode *nodes) {
+    const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= level_node_count) return;
+    BvhNode &node = nodes[level_nodes[i]];
+    Aabb bounds = empty_aabb_device();
+    if (node.count != 0u) {
+        for (uint32_t item = node.first; item < node.first + node.count;
+             ++item) {
+            grow_device(bounds, triangles[order[item]].bounds);
         }
-        node.bounds = bounds;
+    } else {
+        grow_device(bounds, nodes[node.left].bounds);
+        grow_device(bounds, nodes[node.right].bounds);
     }
+    node.bounds = bounds;
 }
 
 __global__ void predict_kernel(Vec3 *velocities, const Vec3 *positions,
@@ -879,6 +880,8 @@ struct CudaBackend::Impl {
     DeviceBuffer<StaticTriangle> static_triangles;
     DeviceBuffer<uint32_t> bvh_order;
     DeviceBuffer<BvhNode> bvh_nodes;
+    DeviceBuffer<uint32_t> bvh_refit_nodes;
+    std::vector<uint32_t> bvh_refit_level_offsets;
 
     DeviceBuffer<Vec3> rest_positions;
     DeviceBuffer<Vec3> positions;
@@ -933,6 +936,43 @@ struct CudaBackend::Impl {
         static_triangles.upload(solver.static_bvh_.triangles_);
         bvh_order.upload(solver.static_bvh_.order_);
         bvh_nodes.upload(solver.static_bvh_.nodes_);
+
+        // StaticBvh stores parents before children. Grouping node indices by
+        // depth lets each level refit in parallel while CUDA stream ordering
+        // keeps every child level complete before its parent level starts.
+        // The arithmetic within each node is unchanged from the CPU reverse
+        // traversal, so this optimization does not alter collision geometry.
+        const std::vector<BvhNode> &nodes = solver.static_bvh_.nodes_;
+        if (!nodes.empty()) {
+            std::vector<uint32_t> depths(nodes.size(), 0u);
+            uint32_t maximum_depth = 0u;
+            for (uint32_t node_index = 0u; node_index < nodes.size();
+                 ++node_index) {
+                const BvhNode &node = nodes[node_index];
+                maximum_depth = std::max(maximum_depth, depths[node_index]);
+                if (node.count == 0u) {
+                    depths[node.left] = depths[node_index] + 1u;
+                    depths[node.right] = depths[node_index] + 1u;
+                }
+            }
+            bvh_refit_level_offsets.assign(
+                static_cast<size_t>(maximum_depth) + 2u, 0u);
+            for (uint32_t depth : depths) {
+                ++bvh_refit_level_offsets[depth + 1u];
+            }
+            for (size_t level = 1u;
+                 level < bvh_refit_level_offsets.size(); ++level) {
+                bvh_refit_level_offsets[level] +=
+                    bvh_refit_level_offsets[level - 1u];
+            }
+            std::vector<uint32_t> level_nodes(nodes.size());
+            std::vector<uint32_t> cursor = bvh_refit_level_offsets;
+            for (uint32_t node_index = 0u; node_index < nodes.size();
+                 ++node_index) {
+                level_nodes[cursor[depths[node_index]]++] = node_index;
+            }
+            bvh_refit_nodes.upload(level_nodes);
+        }
         rest_positions.upload(solver.rest_positions_);
         positions.upload(solver.positions_);
         velocities.upload(solver.velocities_);
@@ -1195,9 +1235,21 @@ struct CudaBackend::Impl {
                                              kBlockSize>>>(
                         static_substep_vertices.get(), static_triangles.get(),
                         static_triangle_count);
-                    refit_nodes_kernel<<<1, 1>>>(
-                        static_triangles.get(), bvh_order.get(), bvh_nodes.get(),
-                        bvh_node_count);
+                    const size_t level_count =
+                        bvh_refit_level_offsets.size() - 1u;
+                    for (size_t remaining = level_count; remaining > 0u;
+                         --remaining) {
+                        const size_t level = remaining - 1u;
+                        const uint32_t first =
+                            bvh_refit_level_offsets[level];
+                        const uint32_t end =
+                            bvh_refit_level_offsets[level + 1u];
+                        refit_nodes_kernel<<<blocks_for(end - first),
+                                             kBlockSize>>>(
+                            static_triangles.get(), bvh_order.get(),
+                            bvh_refit_nodes.get() + first, end - first,
+                            bvh_nodes.get());
+                    }
                 }
             } else if (substep == 0u && static_vertex_count != 0u) {
                 KCS_CUDA_CHECK(cudaMemcpy(static_substep_vertices.get(),
