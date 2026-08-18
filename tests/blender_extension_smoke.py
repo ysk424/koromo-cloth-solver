@@ -30,7 +30,7 @@ def main():
     stage = Path(options.extension_stage).resolve()
     manifest = (stage / "blender_manifest.toml").read_text(encoding="utf-8")
     assert f'id = "{stage.name}"' in manifest
-    assert 'version = "0.7.0"' in manifest
+    assert 'version = "0.7.1"' in manifest
     expected_name = (
         "Koromo CUDA Experimental"
         if stage.name == "koromo_cloth_solver_cuda"

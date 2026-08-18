@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(koromo_cloth_solver VERSION 0.7.0 LANGUAGES C CXX)
+project(koromo_cloth_solver VERSION 0.7.1 LANGUAGES C CXX)
 
 option(KOROMO_BUILD_BLENDER_EXTENSION "Enable Blender Extension staging" ON)
 set(KOROMO_CUDA "AUTO" CACHE STRING

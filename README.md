@@ -42,7 +42,7 @@ within its iteration cap, the uncommitted GPU frame is discarded and recomputed
 by the original CPU solver; all later frames for that solver stay on CPU.
 Explicit `CUDA` disables these two automatic fallbacks for benchmarking.
 The CUDA package is emitted as
-`build-cuda/packages/koromo_cloth_solver_cuda-0.7.0-windows-x64.zip` with the
+`build-cuda/packages/koromo_cloth_solver_cuda-0.7.1-windows-x64.zip` with the
 separate Extension ID `koromo_cloth_solver_cuda`, so installing it does not
 replace the stable Extension. Do not enable both variants simultaneously
 because they intentionally expose the same Blender operators and scene data.
@@ -64,7 +64,7 @@ cmake --build build --target blender-extension
 ```
 
 Output:
-`build/packages/koromo_cloth_solver-0.7.0-windows-x64.zip`.
+`build/packages/koromo_cloth_solver-0.7.1-windows-x64.zip`.
 
 ## Blender data flow
 

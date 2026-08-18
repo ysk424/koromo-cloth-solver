@@ -94,7 +94,7 @@ ctest --test-dir build --output-on-failure
 ```text
 build/koromo_cloth_solver.dll
 build/blender_bridge/native.py
-build/packages/koromo_cloth_solver-0.7.0-windows-x64.zip
+build/packages/koromo_cloth_solver-0.7.1-windows-x64.zip
 ```
 
 本プロジェクトとBlender ExtensionはGNU GPL version 3 or laterです。
